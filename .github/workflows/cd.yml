@@ -1,0 +1,97 @@
+name: CD
+
+# Triggered on push to main ONLY.
+# CI (ci.yml) runs on pull_request; this workflow deploys to production.
+on:
+  push:
+    branches:
+      - main
+
+# Prevent concurrent deployments — one at a time, never cancel in-progress.
+concurrency:
+  group: cd-prod
+  cancel-in-progress: false
+
+jobs:
+  # ── Gate: identical lint + test as CI ──────────────────────────────────────
+  test:
+    name: Lint and test (gate)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt -r requirements-dev.txt
+          pip install -e .
+
+      - name: Lint
+        run: |
+          ruff check src/ tests/
+          ruff format --check src/ tests/
+
+      - name: Unit tests (≥80 % coverage gate)
+        run: pytest tests/unit/ -v --cov=src --cov-fail-under=80
+
+  # ── Deploy: Terraform + S3 script upload ───────────────────────────────────
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    needs: test
+
+    permissions:
+      id-token: write   # required for OIDC authentication
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Configure AWS credentials (OIDC — no long-lived keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt -r requirements-dev.txt
+          pip install -e .
+
+      - name: Build utils.zip (CRITICAL — must run before any S3 upload)
+        run: make build-utils-zip
+
+      - name: Verify utils.zip structure (fail fast if packaging is wrong)
+        run: make verify-zip
+
+      - name: Terraform init
+        run: terraform -chdir=terraform/environments/prod init -input=false
+
+      - name: Terraform apply
+        run: >-
+          terraform -chdir=terraform/environments/prod apply -auto-approve
+          -var="project=${{ vars.TF_PROJECT }}"
+          -var="bucket=${{ vars.LAKEHOUSE_BUCKET }}"
+          -var="alert_email=${{ secrets.ALERT_EMAIL }}"
+
+      - name: Upload Glue job scripts
+        run: |
+          aws s3 sync src/glue_jobs/ \
+            s3://${{ vars.LAKEHOUSE_BUCKET }}/scripts/ \
+            --exact-timestamps \
+            --exclude "__pycache__/*"
+
+      - name: Upload utils.zip
+        run: >-
+          aws s3 cp dist/utils.zip
+          s3://${{ vars.LAKEHOUSE_BUCKET }}/scripts/utils.zip
