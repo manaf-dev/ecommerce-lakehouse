@@ -1,0 +1,9 @@
+{
+  "Comment": "E-Commerce Lakehouse Pipeline — placeholder (Phase 6 implements full ASL)",
+  "StartAt": "PipelineSuccess",
+  "States": {
+    "PipelineSuccess": {
+      "Type": "Succeed"
+    }
+  }
+}
