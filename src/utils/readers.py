@@ -61,6 +61,9 @@ def read_xlsx_to_spark(
     if not non_empty:
         return spark.createDataFrame([], schema=schema)
     combined = pd.concat(non_empty, ignore_index=True)
+    # Replace pandas NaN with Python None so Spark maps them to null correctly.
+    # Without this, NaN in integer columns raises a type-cast error.
+    combined = combined.where(pd.notna(combined), other=None)
     return spark.createDataFrame(combined, schema=schema)
 
 
