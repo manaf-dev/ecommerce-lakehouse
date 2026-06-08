@@ -4,6 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ecommerce-lakehouse"
+version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = []
 
@@ -31,6 +32,8 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP"]
+# N812: `functions as F` is idiomatic PySpark; suppressing globally.
+ignore = ["N812"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["utils"]
