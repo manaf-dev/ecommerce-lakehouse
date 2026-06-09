@@ -77,6 +77,7 @@
           "ResultPath": "$.Error"
         }
       ],
+      "ResultPath": "$.ParallelResults",
       "Next": "IngestOrderItems"
     },
 
