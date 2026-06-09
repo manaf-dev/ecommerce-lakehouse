@@ -9,10 +9,27 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pandas as pd
+from pyspark.sql.types import DateType, StructType, TimestampType
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession  # pragma: no cover
-    from pyspark.sql.types import StructType  # pragma: no cover
+
+
+def _coerce_temporal_columns(df: pd.DataFrame, schema: StructType) -> pd.DataFrame:
+    """Cast timestamp/date columns in-place so Spark createDataFrame won't reject them.
+
+    Spark 3.5 enforces schema types at createDataFrame time and rejects plain
+    Python strings for TimestampType/DateType fields. pandas reads ISO-8601
+    timestamp strings from XLSX as object dtype, so we convert them here.
+    """
+    for field in schema.fields:
+        if field.name not in df.columns:
+            continue
+        if isinstance(field.dataType, TimestampType):
+            df[field.name] = pd.to_datetime(df[field.name], errors="coerce")
+        elif isinstance(field.dataType, DateType):
+            df[field.name] = pd.to_datetime(df[field.name], errors="coerce").dt.date
+    return df
 
 
 def read_csv_to_spark(
@@ -64,6 +81,7 @@ def read_xlsx_to_spark(
     # Replace pandas NaN with Python None so Spark maps them to null correctly.
     # Without this, NaN in integer columns raises a type-cast error.
     combined = combined.where(pd.notna(combined), other=None)
+    combined = _coerce_temporal_columns(combined, schema)
     return spark.createDataFrame(combined, schema=schema)
 
 

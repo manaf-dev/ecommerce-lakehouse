@@ -36,6 +36,7 @@ resource "aws_glue_job" "ingest_delta" {
 
   default_arguments = {
     "--datalake-formats"                 = "delta"
+    "--conf"                             = "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog"
     "--extra-py-files"                   = "s3://${var.bucket}/scripts/utils.zip"
     "--additional-python-modules"        = "pandas==2.2.3,openpyxl==3.1.5"
     "--enable-continuous-cloudwatch-log" = "true"
