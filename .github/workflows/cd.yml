@@ -75,13 +75,17 @@ jobs:
         run: make verify-zip
 
       - name: Terraform init
-        run: terraform -chdir=terraform/environments/prod init -input=false
+        run: >-
+          terraform -chdir=terraform/environments/prod init -input=false
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="region=${{ vars.AWS_REGION }}"
 
       - name: Terraform apply
         run: >-
           terraform -chdir=terraform/environments/prod apply -auto-approve
           -var="project=${{ vars.TF_PROJECT }}"
           -var="bucket=${{ vars.LAKEHOUSE_BUCKET }}"
+          -var="region=${{ vars.AWS_REGION }}"
           -var="alert_email=${{ secrets.ALERT_EMAIL }}"
 
       - name: Upload Glue job scripts
