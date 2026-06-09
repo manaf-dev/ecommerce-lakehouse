@@ -6,6 +6,8 @@ boundary conditions.  Each rule class names the rule being exercised.
 
 from datetime import date, datetime
 
+from pyspark.sql.types import StructField, StructType
+
 from utils.schemas import ORDER_ITEMS_SCHEMA, ORDERS_SCHEMA, PRODUCTS_SCHEMA
 from utils.validation import validate_order_items, validate_orders, validate_products
 
@@ -13,19 +15,29 @@ from utils.validation import validate_order_items, validate_orders, validate_pro
 
 _VALID_PRODUCT = (1, 1, "Beverages", "Cola")
 _VALID_ORDER = (1, None, 1, datetime(2025, 4, 1, 10, 0), 100.0, date(2025, 4, 1), "2025-04")
-_VALID_ORDER_ITEM = (1, 1, 1, None, 1, 1, 0, None, None, "2025-04")
+# user_id=10 must match the orders fixture (order_id=1 → user_id=10)
+_VALID_ORDER_ITEM = (1, 1, 10, None, 1, 1, 0, None, None, "2025-04")
+
+
+def _all_nullable(schema: StructType) -> StructType:
+    """Return a copy of schema with every field nullable=True.
+
+    Required because PySpark 3.5 enforces non-nullable at createDataFrame time,
+    but validation tests need to inject None into PK columns to exercise null checks.
+    """
+    return StructType([StructField(f.name, f.dataType, True) for f in schema.fields])
 
 
 def _products_df(spark, rows):
-    return spark.createDataFrame(rows, schema=PRODUCTS_SCHEMA)
+    return spark.createDataFrame(rows, schema=_all_nullable(PRODUCTS_SCHEMA))
 
 
 def _orders_df(spark, rows):
-    return spark.createDataFrame(rows, schema=ORDERS_SCHEMA)
+    return spark.createDataFrame(rows, schema=_all_nullable(ORDERS_SCHEMA))
 
 
 def _order_items_df(spark, rows):
-    return spark.createDataFrame(rows, schema=ORDER_ITEMS_SCHEMA)
+    return spark.createDataFrame(rows, schema=_all_nullable(ORDER_ITEMS_SCHEMA))
 
 
 # ─── Products validation ──────────────────────────────────────────────────────
