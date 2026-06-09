@@ -26,7 +26,7 @@
                   "--raw_prefix.$": "States.Format('s3://{}/raw/products/', $.bucket)",
                   "--target_path.$": "States.Format('s3://{}/lakehouse-dwh/products/', $.bucket)",
                   "--quarantine_path.$": "States.Format('s3://{}/quarantine/products/', $.bucket)",
-                  "--run_id.$": "$$$$.Execution.Name"
+                  "--run_id.$": "$$.Execution.Name"
                 }
               },
               "Retry": [
@@ -54,7 +54,7 @@
                   "--raw_prefix.$": "States.Format('s3://{}/raw/orders/', $.bucket)",
                   "--target_path.$": "States.Format('s3://{}/lakehouse-dwh/orders/', $.bucket)",
                   "--quarantine_path.$": "States.Format('s3://{}/quarantine/orders/', $.bucket)",
-                  "--run_id.$": "$$$$.Execution.Name"
+                  "--run_id.$": "$$.Execution.Name"
                 }
               },
               "Retry": [
@@ -93,7 +93,7 @@
           "--quarantine_path.$": "States.Format('s3://{}/quarantine/order_items/', $.bucket)",
           "--orders_path.$": "States.Format('s3://{}/lakehouse-dwh/orders/', $.bucket)",
           "--products_path.$": "States.Format('s3://{}/lakehouse-dwh/products/', $.bucket)",
-          "--run_id.$": "$$$$.Execution.Name"
+          "--run_id.$": "$$.Execution.Name"
         }
       },
       "Retry": [
@@ -248,7 +248,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
       "Parameters": {
-        "QueryString.$": "States.Format('SELECT COUNT(*) AS cnt FROM orders WHERE order_month = ''{}''', $.order_month)",
+        "QueryString": "SELECT COUNT(*) AS cnt FROM orders",
         "WorkGroup": "${workgroup_name}",
         "ResultConfiguration": {
           "OutputLocation.$": "States.Format('s3://{}/athena-results/', $.bucket)"
@@ -316,7 +316,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
       "Parameters": {
-        "QueryString.$": "States.Format('SELECT COUNT(*) AS cnt FROM order_items WHERE order_month = ''{}''', $.order_month)",
+        "QueryString": "SELECT COUNT(*) AS cnt FROM order_items",
         "WorkGroup": "${workgroup_name}",
         "ResultConfiguration": {
           "OutputLocation.$": "States.Format('s3://{}/athena-results/', $.bucket)"
@@ -390,7 +390,7 @@
           "--dataset.$": "$.dataset",
           "--raw_prefix.$": "$.raw_prefix",
           "--archive_prefix.$": "$.archive_prefix",
-          "--run_id.$": "$$$$.Execution.Name"
+          "--run_id.$": "$$.Execution.Name"
         }
       },
       "Retry": [
@@ -422,7 +422,7 @@
       "Parameters": {
         "TopicArn": "${sns_topic_arn}",
         "Subject": "Lakehouse Pipeline Failure",
-        "Message.$": "States.Format('Lakehouse pipeline failed — dataset: {}, execution: {}', $.dataset, $$$$.Execution.Name)"
+        "Message.$": "States.Format('Lakehouse pipeline failed. Execution: {}', $$.Execution.Name)"
       },
       "Next": "PipelineFail"
     },
