@@ -54,15 +54,17 @@ data "aws_iam_policy_document" "glue" {
   }
 
   # S3 — read-write-delete (Delta tables, quarantine, archive, raw delete for archive job)
+  # Wildcards omit the trailing slash to also cover Hadoop _$folder$ directory-marker
+  # objects (e.g. lakehouse-dwh_$folder$) that Spark writes on first table creation.
   statement {
     sid     = "GlueS3ReadWriteDelete"
     actions = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
     resources = [
-      "arn:aws:s3:::${var.bucket}/lakehouse-dwh/*",
-      "arn:aws:s3:::${var.bucket}/quarantine/*",
-      "arn:aws:s3:::${var.bucket}/archive/*",
-      "arn:aws:s3:::${var.bucket}/raw/*",
-      "arn:aws:s3:::${var.bucket}/temp/*",
+      "arn:aws:s3:::${var.bucket}/lakehouse-dwh*",
+      "arn:aws:s3:::${var.bucket}/quarantine*",
+      "arn:aws:s3:::${var.bucket}/archive*",
+      "arn:aws:s3:::${var.bucket}/raw*",
+      "arn:aws:s3:::${var.bucket}/temp*",
     ]
   }
 
