@@ -1,0 +1,12 @@
+# Copy this file to terraform.tfvars and fill in real values.
+# terraform.tfvars is git-ignored — never commit it.
+
+project     = "ecommerce-lakehouse"
+region      = "us-east-1"
+bucket      = "my-ecommerce-lakehouse-unique-suffix"
+alert_email = "alerts@example.com"
+
+# The tfstate bucket is NOT managed by this Terraform config (bootstrap resource).
+# Create it once with:  aws s3 mb s3://<project>-tfstate --region <region>
+# Then run: terraform init -backend-config="bucket=<project>-tfstate" -backend-config="region=<region>"
+# tfstate_bucket = "<project>-tfstate"   # for reference — not a Terraform variable
