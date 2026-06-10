@@ -9,18 +9,20 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pandas as pd
-from pyspark.sql.types import DateType, StructType, TimestampType
+from pyspark.sql.types import DateType, DoubleType, FloatType, StructType, TimestampType
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession  # pragma: no cover
 
 
-def _coerce_temporal_columns(df: pd.DataFrame, schema: StructType) -> pd.DataFrame:
-    """Cast timestamp/date columns in-place so Spark createDataFrame won't reject them.
+def _coerce_pandas_types(df: pd.DataFrame, schema: StructType) -> pd.DataFrame:
+    """Coerce pandas column dtypes to match the Spark schema before createDataFrame.
 
-    Spark 3.5 enforces schema types at createDataFrame time and rejects plain
-    Python strings for TimestampType/DateType fields. pandas reads ISO-8601
-    timestamp strings from XLSX as object dtype, so we convert them here.
+    Spark 3.5 enforces schema types strictly at createDataFrame time:
+    - ISO-8601 strings are rejected for TimestampType/DateType
+    - int64 is rejected for DoubleType/FloatType
+    pandas reads XLSX data with whatever dtype fits the raw cell values, so
+    whole-number float columns arrive as int64 and timestamp strings as object.
     """
     for field in schema.fields:
         if field.name not in df.columns:
@@ -29,6 +31,8 @@ def _coerce_temporal_columns(df: pd.DataFrame, schema: StructType) -> pd.DataFra
             df[field.name] = pd.to_datetime(df[field.name], errors="coerce")
         elif isinstance(field.dataType, DateType):
             df[field.name] = pd.to_datetime(df[field.name], errors="coerce").dt.date
+        elif isinstance(field.dataType, (DoubleType, FloatType)):
+            df[field.name] = pd.to_numeric(df[field.name], errors="coerce")
     return df
 
 
@@ -81,7 +85,7 @@ def read_xlsx_to_spark(
     # Replace pandas NaN with Python None so Spark maps them to null correctly.
     # Without this, NaN in integer columns raises a type-cast error.
     combined = combined.where(pd.notna(combined), other=None)
-    combined = _coerce_temporal_columns(combined, schema)
+    combined = _coerce_pandas_types(combined, schema)
     return spark.createDataFrame(combined, schema=schema)
 
 
