@@ -183,6 +183,9 @@
       "Parameters": {
         "QueryString": "SELECT COUNT(*) AS cnt FROM products",
         "WorkGroup": "${workgroup_name}",
+        "QueryExecutionContext": {
+          "Database": "${catalog_db}"
+        },
         "ResultConfiguration": {
           "OutputLocation.$": "States.Format('s3://{}/athena-results/', $.bucket)"
         }
@@ -252,6 +255,9 @@
       "Parameters": {
         "QueryString": "SELECT COUNT(*) AS cnt FROM orders",
         "WorkGroup": "${workgroup_name}",
+        "QueryExecutionContext": {
+          "Database": "${catalog_db}"
+        },
         "ResultConfiguration": {
           "OutputLocation.$": "States.Format('s3://{}/athena-results/', $.bucket)"
         }
@@ -320,6 +326,9 @@
       "Parameters": {
         "QueryString": "SELECT COUNT(*) AS cnt FROM order_items",
         "WorkGroup": "${workgroup_name}",
+        "QueryExecutionContext": {
+          "Database": "${catalog_db}"
+        },
         "ResultConfiguration": {
           "OutputLocation.$": "States.Format('s3://{}/athena-results/', $.bucket)"
         }

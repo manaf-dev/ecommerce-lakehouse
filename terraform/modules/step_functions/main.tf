@@ -27,6 +27,7 @@ resource "aws_sfn_state_machine" "pipeline" {
       project        = var.project
       workgroup_name = var.workgroup_name
       sns_topic_arn  = aws_sns_topic.pipeline_alerts.arn
+      catalog_db     = "lakehouse_dwh"
     }
   )
 

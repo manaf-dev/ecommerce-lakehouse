@@ -160,6 +160,17 @@ data "aws_iam_policy_document" "sfn" {
     resources = [var.athena_workgroup_arn]
   }
 
+  # Glue Data Catalog — Athena resolves table names via the SFN role credentials
+  statement {
+    sid     = "SfnGlueCatalog"
+    actions = ["glue:GetDatabase", "glue:GetTable", "glue:GetTables", "glue:GetPartition", "glue:GetPartitions"]
+    resources = [
+      "arn:aws:glue:${local.region}:${local.account_id}:catalog",
+      "arn:aws:glue:${local.region}:${local.account_id}:database/${local.catalog_db}",
+      "arn:aws:glue:${local.region}:${local.account_id}:table/${local.catalog_db}/*",
+    ]
+  }
+
   # S3 for Athena results
   statement {
     sid       = "SfnAthenaS3"
