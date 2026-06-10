@@ -32,7 +32,9 @@ def _coerce_pandas_types(df: pd.DataFrame, schema: StructType) -> pd.DataFrame:
         elif isinstance(field.dataType, DateType):
             df[field.name] = pd.to_datetime(df[field.name], errors="coerce").dt.date
         elif isinstance(field.dataType, (DoubleType, FloatType)):
-            df[field.name] = pd.to_numeric(df[field.name], errors="coerce")
+            # pd.to_numeric alone returns int64 for whole-number columns;
+            # force float64 so Spark DoubleType accepts the values.
+            df[field.name] = pd.to_numeric(df[field.name], errors="coerce").astype("float64")
     return df
 
 
