@@ -112,6 +112,7 @@
           "ResultPath": "$.Error"
         }
       ],
+      "ResultPath": "$.OrderItemsResult",
       "Next": "StartCrawler"
     },
 

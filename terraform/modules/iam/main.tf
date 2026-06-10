@@ -100,6 +100,7 @@ data "aws_iam_policy_document" "glue" {
     actions = ["logs:CreateLogStream", "logs:PutLogEvents"]
     resources = [
       "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws-glue/jobs/${var.project}-*:*",
+      "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws-glue/crawlers:*",
     ]
   }
 
