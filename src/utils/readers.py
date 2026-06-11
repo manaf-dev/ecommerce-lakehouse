@@ -88,6 +88,10 @@ def read_xlsx_to_spark(
     # Without this, NaN in integer columns raises a type-cast error.
     combined = combined.where(pd.notna(combined), other=None)
     combined = _coerce_pandas_types(combined, schema)
+    # createDataFrame with StructType maps by position, not name.
+    # Reorder pandas columns to match schema field order before conversion.
+    col_order = [f.name for f in schema.fields]
+    combined = combined[col_order]
     return spark.createDataFrame(combined, schema=schema)
 
 

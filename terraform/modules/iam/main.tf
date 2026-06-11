@@ -90,9 +90,12 @@ data "aws_iam_policy_document" "glue" {
 
   # CloudWatch Logs — continuous logging
   statement {
-    sid       = "GlueCloudWatchCreateGroup"
-    actions   = ["logs:CreateLogGroup"]
-    resources = ["arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws-glue/jobs/*"]
+    sid     = "GlueCloudWatchCreateGroup"
+    actions = ["logs:CreateLogGroup"]
+    resources = [
+      "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws-glue/jobs/*",
+      "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws-glue/crawlers",
+    ]
   }
 
   statement {
