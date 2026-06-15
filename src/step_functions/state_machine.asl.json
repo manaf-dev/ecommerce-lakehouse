@@ -180,7 +180,7 @@
     "PostCrawlerWait": {
       "Type": "Wait",
       "Comment": "Allow Glue catalog propagation to complete before querying Athena.",
-      "Seconds": 300,
+      "Seconds": 420,
       "Next": "RunAthenaValidationProducts"
     },
 
