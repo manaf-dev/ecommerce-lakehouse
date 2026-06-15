@@ -5,14 +5,15 @@ data "aws_region" "current" {}
 # Constructing ARNs locally avoids circular module dependencies:
 # iam ← (no module deps)  glue ← iam  step_functions ← iam
 locals {
-  account_id           = data.aws_caller_identity.current.account_id
-  region               = data.aws_region.current.region
-  glue_ingest_job_arn  = "arn:aws:glue:${local.region}:${local.account_id}:job/${var.project}-ingest-delta"
-  glue_archive_job_arn = "arn:aws:glue:${local.region}:${local.account_id}:job/${var.project}-archive-files"
-  crawler_arn          = "arn:aws:glue:${local.region}:${local.account_id}:crawler/${var.project}-crawler"
-  athena_workgroup_arn = "arn:aws:athena:${local.region}:${local.account_id}:workgroup/${var.project}-workgroup"
-  sns_topic_arn        = "arn:aws:sns:${local.region}:${local.account_id}:${var.project}-pipeline-alerts"
-  state_machine_arn    = "arn:aws:states:${local.region}:${local.account_id}:stateMachine:${var.project}-pipeline"
+  account_id                = data.aws_caller_identity.current.account_id
+  region                    = data.aws_region.current.region
+  glue_ingest_job_arn       = "arn:aws:glue:${local.region}:${local.account_id}:job/${var.project}-ingest-delta"
+  glue_archive_job_arn      = "arn:aws:glue:${local.region}:${local.account_id}:job/${var.project}-archive-files"
+  glue_fix_catalog_job_arn  = "arn:aws:glue:${local.region}:${local.account_id}:job/${var.project}-fix-catalog-timestamps"
+  crawler_arn               = "arn:aws:glue:${local.region}:${local.account_id}:crawler/${var.project}-crawler"
+  athena_workgroup_arn      = "arn:aws:athena:${local.region}:${local.account_id}:workgroup/${var.project}-workgroup"
+  sns_topic_arn             = "arn:aws:sns:${local.region}:${local.account_id}:${var.project}-pipeline-alerts"
+  state_machine_arn         = "arn:aws:states:${local.region}:${local.account_id}:stateMachine:${var.project}-pipeline"
 }
 
 # ─── S3 ────────────────────────────────────────────────────────────────────────
@@ -24,15 +25,16 @@ module "s3" {
 
 # ─── IAM ───────────────────────────────────────────────────────────────────────
 module "iam" {
-  source               = "../../modules/iam"
-  bucket               = var.bucket
-  project              = var.project
-  glue_ingest_job_arn  = local.glue_ingest_job_arn
-  glue_archive_job_arn = local.glue_archive_job_arn
-  crawler_arn          = local.crawler_arn
-  athena_workgroup_arn = local.athena_workgroup_arn
-  sns_topic_arn        = local.sns_topic_arn
-  state_machine_arn    = local.state_machine_arn
+  source                   = "../../modules/iam"
+  bucket                   = var.bucket
+  project                  = var.project
+  glue_ingest_job_arn      = local.glue_ingest_job_arn
+  glue_archive_job_arn     = local.glue_archive_job_arn
+  glue_fix_catalog_job_arn = local.glue_fix_catalog_job_arn
+  crawler_arn              = local.crawler_arn
+  athena_workgroup_arn     = local.athena_workgroup_arn
+  sns_topic_arn            = local.sns_topic_arn
+  state_machine_arn        = local.state_machine_arn
 }
 
 # ─── Glue ──────────────────────────────────────────────────────────────────────

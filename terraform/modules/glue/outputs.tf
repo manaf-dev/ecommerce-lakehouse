@@ -18,6 +18,11 @@ output "archive_job_arn" {
   value       = aws_glue_job.archive_files.arn
 }
 
+output "fix_catalog_job_arn" {
+  description = "Glue fix-catalog-timestamps job ARN"
+  value       = aws_glue_job.fix_catalog_timestamps.arn
+}
+
 output "crawler_name" {
   description = "Glue crawler name"
   value       = aws_glue_crawler.lakehouse.name

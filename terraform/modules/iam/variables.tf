@@ -18,6 +18,11 @@ variable "glue_archive_job_arn" {
   type        = string
 }
 
+variable "glue_fix_catalog_job_arn" {
+  description = "ARN of the Glue fix-catalog-timestamps job"
+  type        = string
+}
+
 variable "crawler_arn" {
   description = "ARN of the Glue crawler"
   type        = string

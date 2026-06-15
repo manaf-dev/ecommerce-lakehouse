@@ -171,16 +171,42 @@
         {
           "Variable": "$.CrawlerResult.Crawler.State",
           "StringEquals": "READY",
-          "Next": "PostCrawlerWait"
+          "Next": "FixCatalogTimestamps"
         }
       ],
       "Default": "WaitForCrawler"
     },
 
+    "FixCatalogTimestamps": {
+      "Type": "Task",
+      "Comment": "Reset delta.lastCommitTimestamp in Glue catalog so Athena invalidates its snapshot cache.",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${project}-fix-catalog-timestamps"
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "MaxAttempts": 2,
+          "BackoffRate": 1.0,
+          "IntervalSeconds": 10
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PublishFailureAlert",
+          "ResultPath": "$.Error"
+        }
+      ],
+      "Next": "PostCrawlerWait"
+    },
+
     "PostCrawlerWait": {
       "Type": "Wait",
-      "Comment": "Allow Glue catalog propagation to complete before querying Athena.",
-      "Seconds": 420,
+      "Comment": "Brief pause after catalog fix for Athena metadata service propagation.",
+      "Seconds": 30,
       "Next": "RunAthenaValidationProducts"
     },
 

@@ -146,6 +146,7 @@ data "aws_iam_policy_document" "sfn" {
     resources = [
       var.glue_ingest_job_arn,
       var.glue_archive_job_arn,
+      var.glue_fix_catalog_job_arn,
     ]
   }
 

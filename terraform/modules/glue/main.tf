@@ -18,6 +18,13 @@ resource "aws_s3_object" "archive_files_script" {
   etag   = filemd5("${path.module}/../../../src/glue_jobs/archive_files.py")
 }
 
+resource "aws_s3_object" "fix_catalog_timestamps_script" {
+  bucket = var.bucket
+  key    = "scripts/fix_catalog_timestamps.py"
+  source = "${path.module}/../../../src/glue_jobs/fix_catalog_timestamps.py"
+  etag   = filemd5("${path.module}/../../../src/glue_jobs/fix_catalog_timestamps.py")
+}
+
 # ─── Glue job: ingest_delta (PySpark, Glue 5.0) ────────────────────────────────
 resource "aws_glue_job" "ingest_delta" {
   name              = "${var.project}-ingest-delta"
@@ -74,6 +81,35 @@ resource "aws_glue_job" "archive_files" {
   execution_property {
     max_concurrent_runs = 1
   }
+}
+
+# ─── Glue job: fix_catalog_timestamps (Python Shell, Glue 3.0) ────────────────
+resource "aws_glue_job" "fix_catalog_timestamps" {
+  name         = "${var.project}-fix-catalog-timestamps"
+  role_arn     = var.glue_role_arn
+  glue_version = "3.0"
+  max_capacity = 0.0625
+  max_retries  = 0
+  timeout      = 5
+
+  command {
+    name            = "pythonshell"
+    script_location = "s3://${var.bucket}/scripts/fix_catalog_timestamps.py"
+    python_version  = "3.9"
+  }
+
+  default_arguments = {
+    "--enable-continuous-cloudwatch-log" = "true"
+    "--continuous-log-logGroup"          = "/aws-glue/jobs/${var.project}-fix-catalog-timestamps"
+    "--catalog_db"                       = var.catalog_db_name
+    "--tables"                           = "products,orders,order_items"
+  }
+
+  execution_property {
+    max_concurrent_runs = 1
+  }
+
+  depends_on = [aws_s3_object.fix_catalog_timestamps_script]
 }
 
 # ─── CloudWatch log group for Glue crawler ────────────────────────────────────
