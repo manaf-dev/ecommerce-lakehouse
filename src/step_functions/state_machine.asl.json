@@ -398,9 +398,9 @@
       "Parameters": {
         "JobName": "${project}-archive-files",
         "Arguments": {
-          "--dataset.$": "$.dataset",
-          "--raw_prefix.$": "$.raw_prefix",
-          "--archive_prefix.$": "$.archive_prefix",
+          "--dataset.$": "States.ArrayGetItem(States.StringSplit($.key, '/'), 1)",
+          "--raw_prefix.$": "States.Format('s3://{}/raw/{}/', $.bucket, States.ArrayGetItem(States.StringSplit($.key, '/'), 1))",
+          "--archive_prefix.$": "States.Format('s3://{}/archive/{}/', $.bucket, States.ArrayGetItem(States.StringSplit($.key, '/'), 1))",
           "--run_id.$": "$$.Execution.Name"
         }
       },

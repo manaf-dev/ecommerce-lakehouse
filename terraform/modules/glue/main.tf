@@ -76,8 +76,15 @@ resource "aws_glue_job" "archive_files" {
   }
 }
 
+# ─── CloudWatch log group for Glue crawler ────────────────────────────────────
+resource "aws_cloudwatch_log_group" "crawler" {
+  name              = "/aws-glue/crawlers"
+  retention_in_days = 30
+}
+
 # ─── Glue crawler ──────────────────────────────────────────────────────────────
 resource "aws_glue_crawler" "lakehouse" {
+  depends_on = [aws_cloudwatch_log_group.crawler]
   name          = "${var.project}-crawler"
   role          = var.glue_role_arn
   database_name = aws_glue_catalog_database.lakehouse_dwh.name
@@ -88,7 +95,8 @@ resource "aws_glue_crawler" "lakehouse" {
       "s3://${var.bucket}/lakehouse-dwh/orders/",
       "s3://${var.bucket}/lakehouse-dwh/order_items/",
     ]
-    write_manifest = false
+    write_manifest             = false
+    create_native_delta_table  = true
   }
 
   schema_change_policy {
