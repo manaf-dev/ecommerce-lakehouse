@@ -175,16 +175,21 @@ data "aws_iam_policy_document" "sfn" {
     ]
   }
 
-  # S3 for Athena results
+  # S3 for Athena results and Delta table reads
+  # Athena uses the calling principal's credentials for all S3 access.
+  # The SFN role needs GetObject on lakehouse-dwh/* for Delta log + Parquet files.
   statement {
-    sid       = "SfnAthenaS3"
-    actions   = ["s3:PutObject", "s3:GetObject"]
-    resources = ["arn:aws:s3:::${var.bucket}/athena-results/*"]
+    sid     = "SfnAthenaS3"
+    actions = ["s3:PutObject", "s3:GetObject"]
+    resources = [
+      "arn:aws:s3:::${var.bucket}/athena-results/*",
+      "arn:aws:s3:::${var.bucket}/lakehouse-dwh/*",
+    ]
   }
 
   statement {
-    sid       = "SfnAthenaS3Location"
-    actions   = ["s3:GetBucketLocation"]
+    sid     = "SfnAthenaS3Location"
+    actions = ["s3:GetBucketLocation", "s3:ListBucket"]
     resources = ["arn:aws:s3:::${var.bucket}"]
   }
 
