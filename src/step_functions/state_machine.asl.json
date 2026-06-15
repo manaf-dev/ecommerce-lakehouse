@@ -171,10 +171,17 @@
         {
           "Variable": "$.CrawlerResult.Crawler.State",
           "StringEquals": "READY",
-          "Next": "RunAthenaValidationProducts"
+          "Next": "PostCrawlerWait"
         }
       ],
       "Default": "WaitForCrawler"
+    },
+
+    "PostCrawlerWait": {
+      "Type": "Wait",
+      "Comment": "Allow Glue catalog propagation to complete before querying Athena.",
+      "Seconds": 120,
+      "Next": "RunAthenaValidationProducts"
     },
 
     "RunAthenaValidationProducts": {
