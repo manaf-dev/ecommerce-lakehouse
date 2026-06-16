@@ -23,8 +23,8 @@ from typing import Any
 
 import boto3
 
-
 # ── Inlined logger helpers ────────────────────────────────────────────────────
+
 
 class _DatasetAdapter(logging.LoggerAdapter):
     def process(self, msg: str, kwargs: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -42,6 +42,7 @@ def get_logger(name: str, dataset: str = "", run_id: str = "") -> _DatasetAdapte
 
 
 # ── Inlined S3 helpers ────────────────────────────────────────────────────────
+
 
 def list_s3_objects(client: Any, bucket: str, prefix: str) -> list[str]:
     keys: list[str] = []
@@ -68,9 +69,10 @@ def delete_s3_object(client: Any, bucket: str, key: str) -> None:
 
 # ── Core logic ────────────────────────────────────────────────────────────────
 
+
 def _parse_s3_uri(uri: str) -> tuple[str, str]:
     """Split ``s3://bucket/prefix`` into ``(bucket, prefix)``."""
-    tail = uri[len("s3://"):]
+    tail = uri[len("s3://") :]
     bucket, _, prefix = tail.partition("/")
     return bucket, prefix
 

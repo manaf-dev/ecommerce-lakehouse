@@ -14,6 +14,7 @@ the Delta log on its next query.
 
 import sys
 import time
+
 import boto3
 from awsglue.utils import getResolvedOptions
 
@@ -36,9 +37,16 @@ for table_name in table_names:
             sd_params["delta.lastCommitTimestamp"] = new_ts
 
         for field in (
-            "DatabaseName", "CreateTime", "UpdateTime", "LastAccessTime",
-            "CreatedBy", "IsRegisteredWithLakeFormation", "CatalogId",
-            "VersionId", "IsMultiDialectView", "IsMaterializedView",
+            "DatabaseName",
+            "CreateTime",
+            "UpdateTime",
+            "LastAccessTime",
+            "CreatedBy",
+            "IsRegisteredWithLakeFormation",
+            "CatalogId",
+            "VersionId",
+            "IsMultiDialectView",
+            "IsMaterializedView",
         ):
             tbl.pop(field, None)
 
