@@ -218,9 +218,6 @@
         "WorkGroup": "${workgroup_name}",
         "QueryExecutionContext": {
           "Database": "${catalog_db}"
-        },
-        "ResultConfiguration": {
-          "OutputLocation.$": "States.Format('s3://{}/athena-results/', $.bucket)"
         }
       },
       "ResultPath": "$.AthenaProducts",
@@ -291,9 +288,6 @@
         "WorkGroup": "${workgroup_name}",
         "QueryExecutionContext": {
           "Database": "${catalog_db}"
-        },
-        "ResultConfiguration": {
-          "OutputLocation.$": "States.Format('s3://{}/athena-results/', $.bucket)"
         }
       },
       "ResultPath": "$.AthenaOrders",
@@ -363,9 +357,6 @@
         "WorkGroup": "${workgroup_name}",
         "QueryExecutionContext": {
           "Database": "${catalog_db}"
-        },
-        "ResultConfiguration": {
-          "OutputLocation.$": "States.Format('s3://{}/athena-results/', $.bucket)"
         }
       },
       "ResultPath": "$.AthenaOrderItems",

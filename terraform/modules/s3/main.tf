@@ -58,6 +58,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "lakehouse" {
       storage_class = "GLACIER"
     }
   }
+
+  rule {
+    id     = "athena-results-expiry"
+    status = "Enabled"
+
+    filter {
+      prefix = "athena-results/"
+    }
+
+    expiration {
+      days = 30
+    }
+  }
 }
 
 # ─── Sample data uploads ───────────────────────────────────────────────────────
