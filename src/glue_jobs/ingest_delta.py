@@ -194,11 +194,9 @@ def main() -> None:
         job = Job(glue_ctx)
         job.init(params["JOB_NAME"], params)
 
-        try:
+        if params.get("dataset") == "order_items":
             extras = getResolvedOptions(sys.argv, ["products_path", "orders_path"])
             params.update(extras)
-        except SystemExit:
-            pass  # not order_items; paths are absent and will be validated in run_ingest if needed
 
         run_ingest(spark, params)
         job.commit()
