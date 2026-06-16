@@ -55,6 +55,8 @@ resource "aws_glue_job" "ingest_delta" {
   execution_property {
     max_concurrent_runs = 2
   }
+
+  depends_on = [aws_s3_object.ingest_delta_script]
 }
 
 # ─── Glue job: archive_files (Python Shell, Glue 3.0) ─────────────────────────
@@ -73,7 +75,6 @@ resource "aws_glue_job" "archive_files" {
   }
 
   default_arguments = {
-    "--extra-py-files"                   = "s3://${var.bucket}/scripts/utils.zip"
     "--enable-continuous-cloudwatch-log" = "true"
     "--continuous-log-logGroup"          = "/aws-glue/jobs/${var.project}-archive-files"
   }
@@ -81,6 +82,8 @@ resource "aws_glue_job" "archive_files" {
   execution_property {
     max_concurrent_runs = 1
   }
+
+  depends_on = [aws_s3_object.archive_files_script, aws_cloudwatch_log_group.archive_files]
 }
 
 # ─── Glue job: fix_catalog_timestamps (Python Shell, Glue 3.0) ────────────────
@@ -109,12 +112,27 @@ resource "aws_glue_job" "fix_catalog_timestamps" {
     max_concurrent_runs = 1
   }
 
-  depends_on = [aws_s3_object.fix_catalog_timestamps_script]
+  depends_on = [aws_s3_object.fix_catalog_timestamps_script, aws_cloudwatch_log_group.fix_catalog_timestamps]
 }
 
-# ─── CloudWatch log group for Glue crawler ────────────────────────────────────
+# ─── CloudWatch log groups for Glue jobs ─────────────────────────────────────
 resource "aws_cloudwatch_log_group" "crawler" {
   name              = "/aws-glue/crawlers"
+  retention_in_days = 30
+}
+
+resource "aws_cloudwatch_log_group" "ingest_delta" {
+  name              = "/aws-glue/jobs/${var.project}-ingest-delta"
+  retention_in_days = 30
+}
+
+resource "aws_cloudwatch_log_group" "archive_files" {
+  name              = "/aws-glue/jobs/${var.project}-archive-files"
+  retention_in_days = 30
+}
+
+resource "aws_cloudwatch_log_group" "fix_catalog_timestamps" {
+  name              = "/aws-glue/jobs/${var.project}-fix-catalog-timestamps"
   retention_in_days = 30
 }
 

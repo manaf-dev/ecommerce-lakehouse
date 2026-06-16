@@ -24,21 +24,30 @@ table_names = [t.strip() for t in args["tables"].split(",")]
 glue = boto3.client("glue")
 new_ts = str(int(time.time() * 1000))
 
+failures = []
 for table_name in table_names:
-    resp = glue.get_table(DatabaseName=catalog_db, Name=table_name)
-    tbl = resp["Table"]
+    try:
+        resp = glue.get_table(DatabaseName=catalog_db, Name=table_name)
+        tbl = resp["Table"]
 
-    tbl["Parameters"]["delta.lastCommitTimestamp"] = new_ts
-    sd_params = tbl.get("StorageDescriptor", {}).get("Parameters", {})
-    if "delta.lastCommitTimestamp" in sd_params:
-        sd_params["delta.lastCommitTimestamp"] = new_ts
+        tbl["Parameters"]["delta.lastCommitTimestamp"] = new_ts
+        sd_params = tbl.get("StorageDescriptor", {}).get("Parameters", {})
+        if "delta.lastCommitTimestamp" in sd_params:
+            sd_params["delta.lastCommitTimestamp"] = new_ts
 
-    for field in (
-        "DatabaseName", "CreateTime", "UpdateTime", "LastAccessTime",
-        "CreatedBy", "IsRegisteredWithLakeFormation", "CatalogId",
-        "VersionId", "IsMultiDialectView", "IsMaterializedView",
-    ):
-        tbl.pop(field, None)
+        for field in (
+            "DatabaseName", "CreateTime", "UpdateTime", "LastAccessTime",
+            "CreatedBy", "IsRegisteredWithLakeFormation", "CatalogId",
+            "VersionId", "IsMultiDialectView", "IsMaterializedView",
+        ):
+            tbl.pop(field, None)
 
-    glue.update_table(DatabaseName=catalog_db, TableInput=tbl)
-    print(f"Updated {table_name}: delta.lastCommitTimestamp = {new_ts}")
+        glue.update_table(DatabaseName=catalog_db, TableInput=tbl)
+        print(f"Updated {table_name}: delta.lastCommitTimestamp = {new_ts}")
+    except Exception as exc:
+        print(f"ERROR: failed to update {table_name}: {exc}")
+        failures.append((table_name, exc))
+
+if failures:
+    names = ", ".join(t for t, _ in failures)
+    raise RuntimeError(f"Failed to update {len(failures)} table(s): {names}")

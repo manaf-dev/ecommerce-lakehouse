@@ -224,12 +224,13 @@
         }
       },
       "ResultPath": "$.AthenaProducts",
+      "TimeoutSeconds": 300,
       "Retry": [
         {
           "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 5,
-          "BackoffRate": 1.0,
-          "IntervalSeconds": 120
+          "MaxAttempts": 3,
+          "BackoffRate": 1.5,
+          "IntervalSeconds": 60
         }
       ],
       "Catch": [
@@ -296,12 +297,13 @@
         }
       },
       "ResultPath": "$.AthenaOrders",
+      "TimeoutSeconds": 300,
       "Retry": [
         {
           "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 5,
-          "BackoffRate": 1.0,
-          "IntervalSeconds": 120
+          "MaxAttempts": 3,
+          "BackoffRate": 1.5,
+          "IntervalSeconds": 60
         }
       ],
       "Catch": [
@@ -367,12 +369,13 @@
         }
       },
       "ResultPath": "$.AthenaOrderItems",
+      "TimeoutSeconds": 300,
       "Retry": [
         {
           "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 5,
-          "BackoffRate": 1.0,
-          "IntervalSeconds": 120
+          "MaxAttempts": 3,
+          "BackoffRate": 1.5,
+          "IntervalSeconds": 60
         }
       ],
       "Catch": [
@@ -418,25 +421,90 @@
             "Variable": "$.QueryResults.ResultSet.Rows[1].Data[0].VarCharValue",
             "StringEquals": "0"
           },
-          "Next": "ArchiveFiles"
+          "Next": "ArchiveProducts"
         }
       ],
       "Default": "PublishFailureAlert"
     },
 
-    "ArchiveFiles": {
+    "ArchiveProducts": {
       "Type": "Task",
-      "Comment": "Copies raw files to archive zone and deletes originals after successful validation.",
+      "Comment": "Archive raw products files after successful validation.",
       "Resource": "arn:aws:states:::glue:startJobRun.sync",
       "Parameters": {
         "JobName": "${project}-archive-files",
         "Arguments": {
-          "--dataset.$": "States.ArrayGetItem(States.StringSplit($.key, '/'), 1)",
-          "--raw_prefix.$": "States.Format('s3://{}/raw/{}/', $.bucket, States.ArrayGetItem(States.StringSplit($.key, '/'), 1))",
-          "--archive_prefix.$": "States.Format('s3://{}/archive/{}/', $.bucket, States.ArrayGetItem(States.StringSplit($.key, '/'), 1))",
+          "--dataset": "products",
+          "--raw_prefix.$": "States.Format('s3://{}/raw/products/', $.bucket)",
+          "--archive_prefix.$": "States.Format('s3://{}/archive/products/', $.bucket)",
           "--run_id.$": "$$.Execution.Name"
         }
       },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0,
+          "IntervalSeconds": 15
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PublishFailureAlert",
+          "ResultPath": "$.Error"
+        }
+      ],
+      "Next": "ArchiveOrders"
+    },
+
+    "ArchiveOrders": {
+      "Type": "Task",
+      "Comment": "Archive raw orders files after successful validation.",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${project}-archive-files",
+        "Arguments": {
+          "--dataset": "orders",
+          "--raw_prefix.$": "States.Format('s3://{}/raw/orders/', $.bucket)",
+          "--archive_prefix.$": "States.Format('s3://{}/archive/orders/', $.bucket)",
+          "--run_id.$": "$$.Execution.Name"
+        }
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0,
+          "IntervalSeconds": 15
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PublishFailureAlert",
+          "ResultPath": "$.Error"
+        }
+      ],
+      "Next": "ArchiveOrderItems"
+    },
+
+    "ArchiveOrderItems": {
+      "Type": "Task",
+      "Comment": "Archive raw order_items files after successful validation.",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${project}-archive-files",
+        "Arguments": {
+          "--dataset": "order_items",
+          "--raw_prefix.$": "States.Format('s3://{}/raw/order_items/', $.bucket)",
+          "--archive_prefix.$": "States.Format('s3://{}/archive/order_items/', $.bucket)",
+          "--run_id.$": "$$.Execution.Name"
+        }
+      },
+      "ResultPath": null,
       "Retry": [
         {
           "ErrorEquals": ["States.ALL"],
