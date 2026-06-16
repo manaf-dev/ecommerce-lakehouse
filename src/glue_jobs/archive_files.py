@@ -17,17 +17,60 @@ Entry point for tests: ``run_archive(args)``.
 
 from __future__ import annotations
 
+import logging
 import sys
+from typing import Any
 
 import boto3
 
-from utils.logger import get_logger
-from utils.s3_helpers import copy_s3_object, delete_s3_object, list_s3_objects
 
+# ── Inlined logger helpers ────────────────────────────────────────────────────
+
+class _DatasetAdapter(logging.LoggerAdapter):
+    def process(self, msg: str, kwargs: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        dataset = self.extra.get("dataset", "")
+        run_id = self.extra.get("run_id", "")
+        parts = [p for p in (dataset, run_id) if p]
+        prefix = "".join(f"[{p}]" for p in parts)
+        return (f"{prefix} {msg}" if prefix else msg), kwargs
+
+
+def get_logger(name: str, dataset: str = "", run_id: str = "") -> _DatasetAdapter:
+    if not logging.root.handlers:
+        logging.basicConfig(level=logging.INFO)
+    return _DatasetAdapter(logging.getLogger(name), {"dataset": dataset, "run_id": run_id})
+
+
+# ── Inlined S3 helpers ────────────────────────────────────────────────────────
+
+def list_s3_objects(client: Any, bucket: str, prefix: str) -> list[str]:
+    keys: list[str] = []
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            keys.append(obj["Key"])
+    return keys
+
+
+def copy_s3_object(
+    client: Any, source_bucket: str, source_key: str, dest_bucket: str, dest_key: str
+) -> None:
+    client.copy_object(
+        CopySource={"Bucket": source_bucket, "Key": source_key},
+        Bucket=dest_bucket,
+        Key=dest_key,
+    )
+
+
+def delete_s3_object(client: Any, bucket: str, key: str) -> None:
+    client.delete_object(Bucket=bucket, Key=key)
+
+
+# ── Core logic ────────────────────────────────────────────────────────────────
 
 def _parse_s3_uri(uri: str) -> tuple[str, str]:
     """Split ``s3://bucket/prefix`` into ``(bucket, prefix)``."""
-    tail = uri[len("s3://") :]
+    tail = uri[len("s3://"):]
     bucket, _, prefix = tail.partition("/")
     return bucket, prefix
 
@@ -35,7 +78,7 @@ def _parse_s3_uri(uri: str) -> tuple[str, str]:
 def run_archive(args: dict) -> dict:
     """Core archive logic — callable from tests without a Glue runtime.
 
-    Processing sequence (per contracts/glue-job-interface.md):
+    Processing sequence:
       1. List all objects under raw_prefix.
       2. Copy each object to archive_prefix + basename.
       3. After ALL copies succeed: delete each source object.
@@ -55,7 +98,6 @@ def run_archive(args: dict) -> dict:
 
     src_bucket, src_prefix = _parse_s3_uri(raw_prefix)
     dst_bucket, dst_prefix = _parse_s3_uri(archive_prefix)
-    # Normalise prefix (no trailing slash duplication)
     dst_prefix = dst_prefix.rstrip("/")
 
     client = boto3.client("s3")
