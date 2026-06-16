@@ -6,13 +6,12 @@ succeed before any delete is attempted, so a delete failure leaves data in
 both locations (no data loss).
 
 Args (via getResolvedOptions):
-  --dataset        Dataset name (products, orders, order_items)
-  --raw_prefix     S3 URI to source files  (e.g. s3://bucket/raw/products/)
-  --archive_prefix S3 URI for archive dest (e.g. s3://bucket/archive/products/run/)
-  --run_id         Step Functions execution name
+  --datasets  Comma-separated dataset names (e.g. products,orders,order_items)
+  --bucket    S3 bucket name (no s3:// prefix)
+  --run_id    Step Functions execution name
 
 Entry point for Glue 3.0 runtime: ``main()``.
-Entry point for tests: ``run_archive(args)``.
+Entry point for tests: ``run_archive(args)`` (single-dataset, explicit prefixes).
 """
 
 from __future__ import annotations
@@ -126,22 +125,49 @@ def run_archive(args: dict) -> dict:
     return {"archived": count, "deleted": count}
 
 
+def run_archive_all(datasets: list[str], bucket: str, run_id: str) -> dict:
+    """Archive multiple datasets sequentially, constructing S3 URIs from the bucket name.
+
+    Args:
+        datasets: Dataset names to archive (e.g. ["products", "orders", "order_items"]).
+        bucket:   S3 bucket name (no s3:// prefix).
+        run_id:   Step Functions execution name used as a log label.
+
+    Returns:
+        Totals dict with keys ``archived`` and ``deleted`` across all datasets.
+    """
+    totals = {"archived": 0, "deleted": 0}
+    for dataset in datasets:
+        result = run_archive(
+            {
+                "dataset": dataset,
+                "raw_prefix": f"s3://{bucket}/raw/{dataset}/",
+                "archive_prefix": f"s3://{bucket}/archive/{dataset}/",
+                "run_id": run_id,
+            }
+        )
+        totals["archived"] += result["archived"]
+        totals["deleted"] += result["deleted"]
+    return totals
+
+
 def main() -> None:
     """AWS Glue 3.0 Python Shell entry point."""
     try:
         from awsglue.utils import getResolvedOptions  # noqa: PLC0415
 
-        params = getResolvedOptions(sys.argv, ["dataset", "raw_prefix", "archive_prefix", "run_id"])
+        params = getResolvedOptions(sys.argv, ["datasets", "bucket", "run_id"])
     except ImportError:
         import argparse  # noqa: PLC0415
 
         parser = argparse.ArgumentParser(description="Local archive_files runner")
-        for flag in ["--dataset", "--raw_prefix", "--archive_prefix", "--run_id"]:
+        for flag in ["--datasets", "--bucket", "--run_id"]:
             parser.add_argument(flag)
         ns = parser.parse_args()
         params = {k: v for k, v in vars(ns).items() if v is not None}
 
-    run_archive(params)
+    datasets = [d.strip() for d in params["datasets"].split(",")]
+    run_archive_all(datasets, params["bucket"], params["run_id"])
 
 
 if __name__ == "__main__":

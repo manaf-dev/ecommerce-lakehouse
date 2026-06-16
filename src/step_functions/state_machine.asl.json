@@ -5,7 +5,11 @@
 
     "StartIngestion": {
       "Type": "Pass",
-      "Comment": "Pipeline entry point. All per-dataset S3 paths are built from $.bucket at runtime.",
+      "Comment": "Pipeline entry point. Injects the canonical dataset list reused by ValidateRowCounts and ArchiveAllDatasets.",
+      "Result": {
+        "datasets": ["products", "orders", "order_items"]
+      },
+      "ResultPath": "$.meta",
       "Next": "IngestParallel"
     },
 
@@ -207,291 +211,103 @@
       "Type": "Wait",
       "Comment": "Brief pause after catalog fix for Athena metadata service propagation.",
       "Seconds": 30,
-      "Next": "RunAthenaValidationProducts"
+      "Next": "ValidateRowCounts"
     },
 
-    "RunAthenaValidationProducts": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
-      "Parameters": {
-        "QueryString": "SELECT COUNT(*) AS cnt FROM products",
-        "WorkGroup": "${workgroup_name}",
-        "QueryExecutionContext": {
-          "Database": "${catalog_db}"
-        }
+    "ValidateRowCounts": {
+      "Type": "Map",
+      "Comment": "Validates each dataset has > 0 rows via Athena COUNT(*). All 3 run in parallel.",
+      "ItemsPath": "$.meta.datasets",
+      "MaxConcurrency": 3,
+      "ItemSelector": {
+        "dataset.$": "$$.Map.Item.Value"
       },
-      "ResultPath": "$.AthenaProducts",
-      "TimeoutSeconds": 300,
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 3,
-          "BackoffRate": 1.5,
-          "IntervalSeconds": 60
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "Next": "GetAthenaResultsProducts"
-    },
-
-    "GetAthenaResultsProducts": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::aws-sdk:athena:getQueryResults",
-      "Parameters": {
-        "QueryExecutionId.$": "$.AthenaProducts.QueryExecution.QueryExecutionId"
-      },
-      "ResultPath": "$.QueryResults",
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 2,
-          "BackoffRate": 2.0,
-          "IntervalSeconds": 10
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "Next": "CheckRowCountProducts"
-    },
-
-    "CheckRowCountProducts": {
-      "Type": "Choice",
-      "Comment": "Row[0] = header, Row[1] = COUNT(*) value.",
-      "Choices": [
-        {
-          "Not": {
-            "Variable": "$.QueryResults.ResultSet.Rows[1].Data[0].VarCharValue",
-            "StringEquals": "0"
+      "ResultPath": "$.ValidationResults",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "RunAthenaQuery",
+        "States": {
+          "RunAthenaQuery": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
+            "Parameters": {
+              "QueryString.$": "States.Format('SELECT COUNT(*) AS cnt FROM {}', $.dataset)",
+              "WorkGroup": "${workgroup_name}",
+              "QueryExecutionContext": {
+                "Database": "${catalog_db}"
+              }
+            },
+            "ResultPath": "$.AthenaResult",
+            "TimeoutSeconds": 300,
+            "Retry": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "MaxAttempts": 3,
+                "BackoffRate": 1.5,
+                "IntervalSeconds": 60
+              }
+            ],
+            "Next": "GetQueryResults"
           },
-          "Next": "RunAthenaValidationOrders"
-        }
-      ],
-      "Default": "PublishFailureAlert"
-    },
-
-    "RunAthenaValidationOrders": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
-      "Parameters": {
-        "QueryString": "SELECT COUNT(*) AS cnt FROM orders",
-        "WorkGroup": "${workgroup_name}",
-        "QueryExecutionContext": {
-          "Database": "${catalog_db}"
-        }
-      },
-      "ResultPath": "$.AthenaOrders",
-      "TimeoutSeconds": 300,
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 3,
-          "BackoffRate": 1.5,
-          "IntervalSeconds": 60
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "Next": "GetAthenaResultsOrders"
-    },
-
-    "GetAthenaResultsOrders": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::aws-sdk:athena:getQueryResults",
-      "Parameters": {
-        "QueryExecutionId.$": "$.AthenaOrders.QueryExecution.QueryExecutionId"
-      },
-      "ResultPath": "$.QueryResults",
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 2,
-          "BackoffRate": 2.0,
-          "IntervalSeconds": 10
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "Next": "CheckRowCountOrders"
-    },
-
-    "CheckRowCountOrders": {
-      "Type": "Choice",
-      "Choices": [
-        {
-          "Not": {
-            "Variable": "$.QueryResults.ResultSet.Rows[1].Data[0].VarCharValue",
-            "StringEquals": "0"
+          "GetQueryResults": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::aws-sdk:athena:getQueryResults",
+            "Parameters": {
+              "QueryExecutionId.$": "$.AthenaResult.QueryExecution.QueryExecutionId"
+            },
+            "ResultPath": "$.QueryResults",
+            "Retry": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "MaxAttempts": 2,
+                "BackoffRate": 2.0,
+                "IntervalSeconds": 10
+              }
+            ],
+            "Next": "CheckRowCount"
           },
-          "Next": "RunAthenaValidationOrderItems"
-        }
-      ],
-      "Default": "PublishFailureAlert"
-    },
-
-    "RunAthenaValidationOrderItems": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
-      "Parameters": {
-        "QueryString": "SELECT COUNT(*) AS cnt FROM order_items",
-        "WorkGroup": "${workgroup_name}",
-        "QueryExecutionContext": {
-          "Database": "${catalog_db}"
-        }
-      },
-      "ResultPath": "$.AthenaOrderItems",
-      "TimeoutSeconds": 300,
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 3,
-          "BackoffRate": 1.5,
-          "IntervalSeconds": 60
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "Next": "GetAthenaResultsOrderItems"
-    },
-
-    "GetAthenaResultsOrderItems": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::aws-sdk:athena:getQueryResults",
-      "Parameters": {
-        "QueryExecutionId.$": "$.AthenaOrderItems.QueryExecution.QueryExecutionId"
-      },
-      "ResultPath": "$.QueryResults",
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 2,
-          "BackoffRate": 2.0,
-          "IntervalSeconds": 10
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "Next": "CheckRowCountOrderItems"
-    },
-
-    "CheckRowCountOrderItems": {
-      "Type": "Choice",
-      "Choices": [
-        {
-          "Not": {
-            "Variable": "$.QueryResults.ResultSet.Rows[1].Data[0].VarCharValue",
-            "StringEquals": "0"
+          "CheckRowCount": {
+            "Type": "Choice",
+            "Choices": [
+              {
+                "Variable": "$.QueryResults.ResultSet.Rows[1].Data[0].VarCharValue",
+                "StringEquals": "0",
+                "Next": "FailValidation"
+              }
+            ],
+            "Default": "ValidationPassed"
           },
-          "Next": "ArchiveProducts"
+          "FailValidation": {
+            "Type": "Fail",
+            "Error": "ZeroRowCount",
+            "Cause": "Dataset has zero rows after ingestion — check CloudWatch logs for details."
+          },
+          "ValidationPassed": {
+            "Type": "Succeed"
+          }
+        }
+      },
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PublishFailureAlert",
+          "ResultPath": "$.Error"
         }
       ],
-      "Default": "PublishFailureAlert"
+      "Next": "ArchiveAllDatasets"
     },
 
-    "ArchiveProducts": {
+    "ArchiveAllDatasets": {
       "Type": "Task",
-      "Comment": "Archive raw products files after successful validation.",
+      "Comment": "Archives all dataset raw zones in a single Glue job run.",
       "Resource": "arn:aws:states:::glue:startJobRun.sync",
       "Parameters": {
         "JobName": "${project}-archive-files",
         "Arguments": {
-          "--dataset": "products",
-          "--raw_prefix.$": "States.Format('s3://{}/raw/products/', $.bucket)",
-          "--archive_prefix.$": "States.Format('s3://{}/archive/products/', $.bucket)",
-          "--run_id.$": "$$.Execution.Name"
-        }
-      },
-      "ResultPath": null,
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 2,
-          "BackoffRate": 2.0,
-          "IntervalSeconds": 15
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "Next": "ArchiveOrders"
-    },
-
-    "ArchiveOrders": {
-      "Type": "Task",
-      "Comment": "Archive raw orders files after successful validation.",
-      "Resource": "arn:aws:states:::glue:startJobRun.sync",
-      "Parameters": {
-        "JobName": "${project}-archive-files",
-        "Arguments": {
-          "--dataset": "orders",
-          "--raw_prefix.$": "States.Format('s3://{}/raw/orders/', $.bucket)",
-          "--archive_prefix.$": "States.Format('s3://{}/archive/orders/', $.bucket)",
-          "--run_id.$": "$$.Execution.Name"
-        }
-      },
-      "ResultPath": null,
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 2,
-          "BackoffRate": 2.0,
-          "IntervalSeconds": 15
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "Next": "ArchiveOrderItems"
-    },
-
-    "ArchiveOrderItems": {
-      "Type": "Task",
-      "Comment": "Archive raw order_items files after successful validation.",
-      "Resource": "arn:aws:states:::glue:startJobRun.sync",
-      "Parameters": {
-        "JobName": "${project}-archive-files",
-        "Arguments": {
-          "--dataset": "order_items",
-          "--raw_prefix.$": "States.Format('s3://{}/raw/order_items/', $.bucket)",
-          "--archive_prefix.$": "States.Format('s3://{}/archive/order_items/', $.bucket)",
+          "--datasets": "products,orders,order_items",
+          "--bucket.$": "$.bucket",
           "--run_id.$": "$$.Execution.Name"
         }
       },
