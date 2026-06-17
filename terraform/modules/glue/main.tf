@@ -53,7 +53,7 @@ resource "aws_glue_job" "ingest_delta" {
   }
 
   execution_property {
-    max_concurrent_runs = 3
+    max_concurrent_runs = 6
   }
 
   depends_on = [aws_s3_object.ingest_delta_script]

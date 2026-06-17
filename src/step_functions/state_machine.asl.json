@@ -35,6 +35,12 @@
               },
               "Retry": [
                 {
+                  "ErrorEquals": ["Glue.ConcurrentRunsExceededException"],
+                  "MaxAttempts": 6,
+                  "IntervalSeconds": 60,
+                  "BackoffRate": 1.5
+                },
+                {
                   "ErrorEquals": ["States.ALL"],
                   "MaxAttempts": 2,
                   "BackoffRate": 2.0,
@@ -62,6 +68,12 @@
                 }
               },
               "Retry": [
+                {
+                  "ErrorEquals": ["Glue.ConcurrentRunsExceededException"],
+                  "MaxAttempts": 6,
+                  "IntervalSeconds": 60,
+                  "BackoffRate": 1.5
+                },
                 {
                   "ErrorEquals": ["States.ALL"],
                   "MaxAttempts": 2,
@@ -102,6 +114,12 @@
         }
       },
       "Retry": [
+        {
+          "ErrorEquals": ["Glue.ConcurrentRunsExceededException"],
+          "MaxAttempts": 6,
+          "IntervalSeconds": 60,
+          "BackoffRate": 1.5
+        },
         {
           "ErrorEquals": ["States.ALL"],
           "MaxAttempts": 2,
