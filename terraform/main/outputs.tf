@@ -27,8 +27,3 @@ output "catalog_db_name" {
   description = "Glue Data Catalog database name"
   value       = module.glue.catalog_db_name
 }
-
-output "grafana_reader_user_name" {
-  description = "IAM user name for Grafana Cloud read-only Athena access"
-  value       = module.iam.grafana_reader_user_name
-}
