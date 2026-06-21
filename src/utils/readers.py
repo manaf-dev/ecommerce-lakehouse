@@ -6,7 +6,7 @@ XLSX files may contain multiple sheets; all sheets are concatenated.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 from pyspark.sql.types import (
@@ -24,30 +24,49 @@ if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession  # pragma: no cover
 
 
-def _coerce_pandas_types(df: pd.DataFrame, schema: StructType) -> pd.DataFrame:
-    """Coerce pandas column dtypes to match the Spark schema before createDataFrame.
+def _sanitize_value(value: Any) -> Any:
+    """Map pandas/NumPy null sentinels to Python None for Spark rows."""
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        return value
+    return value
 
-    Spark 3.5 enforces schema types strictly at createDataFrame time:
-    - ISO-8601 strings are rejected for TimestampType/DateType
-    - int64 is rejected for DoubleType/FloatType
-    pandas reads XLSX data with whatever dtype fits the raw cell values, so
-    whole-number float columns arrive as int64/float64 and timestamp strings as object.
-    """
+
+def _coerce_pandas_types(df: pd.DataFrame, schema: StructType) -> pd.DataFrame:
+    """Coerce pandas columns to Spark-compatible Python values."""
+    out = df.copy()
     for field in schema.fields:
-        if field.name not in df.columns:
+        if field.name not in out.columns:
             continue
+        col = field.name
         if isinstance(field.dataType, TimestampType):
-            df[field.name] = pd.to_datetime(df[field.name], errors="coerce")
+            out[col] = pd.to_datetime(out[col], errors="coerce")
         elif isinstance(field.dataType, DateType):
-            df[field.name] = pd.to_datetime(df[field.name], errors="coerce").dt.date
+            out[col] = pd.to_datetime(out[col], errors="coerce").dt.date
         elif isinstance(field.dataType, (IntegerType, LongType, ShortType)):
-            # Excel often returns 1.0 for integer columns; Spark 3.5 rejects floats for LongType.
-            df[field.name] = pd.to_numeric(df[field.name], errors="coerce").astype("Int64")
+            numeric = pd.to_numeric(out[col], errors="coerce")
+            out[col] = [int(v) if pd.notna(v) else None for v in numeric]
         elif isinstance(field.dataType, (DoubleType, FloatType)):
-            # pd.to_numeric alone returns int64 for whole-number columns;
-            # force float64 so Spark DoubleType accepts the values.
-            df[field.name] = pd.to_numeric(df[field.name], errors="coerce").astype("float64")
-    return df
+            numeric = pd.to_numeric(out[col], errors="coerce")
+            out[col] = [float(v) if pd.notna(v) else None for v in numeric]
+    return out
+
+
+def _rows_for_schema(df: pd.DataFrame, schema: StructType) -> list[dict[str, Any]]:
+    """Align pandas columns to schema order and emit Spark-safe row dicts."""
+    aligned = df.copy()
+    for field in schema.fields:
+        if field.name not in aligned.columns:
+            aligned[field.name] = None
+    ordered = aligned[[field.name for field in schema.fields]]
+    return [
+        {key: _sanitize_value(value) for key, value in row.items()}
+        for row in ordered.to_dict("records")
+    ]
 
 
 def read_csv_to_spark(
@@ -55,16 +74,7 @@ def read_csv_to_spark(
     path: str,
     schema: StructType,
 ) -> DataFrame:
-    """Read a CSV file (or prefix) into a Spark DataFrame.
-
-    Args:
-        spark: Active SparkSession.
-        path: S3 path or local path to the CSV file(s).
-        schema: Target StructType — enforced at read time.
-
-    Returns:
-        Spark DataFrame with the given schema.
-    """
+    """Read a CSV file (or prefix) into a Spark DataFrame."""
     return spark.read.schema(schema).option("header", "true").csv(path)
 
 
@@ -73,38 +83,20 @@ def read_xlsx_to_spark(
     path: str,
     schema: StructType,
 ) -> DataFrame:
-    """Read an XLSX file into a Spark DataFrame.
-
-    All sheets in the workbook are concatenated. Empty sheets are silently
-    skipped. Reads the file on the driver via pandas+openpyxl, then
-    distributes the combined DataFrame to Spark workers.
-
-    Args:
-        spark: Active SparkSession.
-        path: Local path to the XLSX file (must be accessible on the driver).
-        schema: Target StructType — used when creating the Spark DataFrame.
-
-    Returns:
-        Spark DataFrame containing rows from all sheets.
-    """
+    """Read an XLSX file into a Spark DataFrame."""
     all_sheets: dict[str, pd.DataFrame] = pd.read_excel(
         path,
         sheet_name=None,
         engine="openpyxl",
     )
-    non_empty = [df for df in all_sheets.values() if not df.empty]
+    non_empty = [sheet_df for sheet_df in all_sheets.values() if not sheet_df.empty]
     if not non_empty:
         return spark.createDataFrame([], schema=schema)
+
     combined = pd.concat(non_empty, ignore_index=True)
-    # Replace pandas NaN with Python None so Spark maps them to null correctly.
-    # Without this, NaN in integer columns raises a type-cast error.
-    combined = combined.where(pd.notna(combined), other=None)
     combined = _coerce_pandas_types(combined, schema)
-    # createDataFrame with StructType maps by position, not name.
-    # Reorder pandas columns to match schema field order before conversion.
-    col_order = [f.name for f in schema.fields]
-    combined = combined[col_order]
-    return spark.createDataFrame(combined, schema=schema)
+    rows = _rows_for_schema(combined, schema)
+    return spark.createDataFrame(rows, schema=schema)
 
 
 def read_dataset(
@@ -113,20 +105,7 @@ def read_dataset(
     source_format: str,
     schema: StructType,
 ) -> DataFrame:
-    """Dispatch to the correct reader based on source_format.
-
-    Args:
-        spark: Active SparkSession.
-        path: Path to the source file.
-        source_format: ``"csv"`` or ``"xlsx"``.
-        schema: Target StructType.
-
-    Returns:
-        Spark DataFrame.
-
-    Raises:
-        ValueError: If source_format is not ``"csv"`` or ``"xlsx"``.
-    """
+    """Dispatch to the correct reader based on source_format."""
     if source_format == "csv":
         return read_csv_to_spark(spark, path, schema)
     if source_format == "xlsx":
