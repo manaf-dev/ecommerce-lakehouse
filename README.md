@@ -260,7 +260,7 @@ All AWS resources receive default tags via the provider: `Project`, `ManagedBy=t
 
 | Symptom | Where to look |
 |---|---|
-| CD `terraform apply` AccessDenied on `s3:CreateBucket` | Re-run `put-role-policy` with `scripts/github-actions-deploy-policy.json` — `CreateBucket` requires `Resource: *` with `s3:BucketName` condition |
+| CD `terraform plan` AccessDenied on `s3:GetBucket*` | Re-run `put-role-policy` — bucket config actions use `s3:GetBucket*` / `s3:PutBucket*` wildcards scoped to your bucket ARNs |
 | CD `terraform apply` 403 on tfstate bucket | `TF_STATE_BUCKET` in IAM policy does not match the GitHub `production` environment value |
 | Pipeline not starting | CloudWatch `/aws/lambda/<project>-start-pipeline`; SQS queue depth |
 | Step Functions failed | Step Functions execution history; `/aws/states/<project>-pipeline` |
