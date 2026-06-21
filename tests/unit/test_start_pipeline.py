@@ -64,3 +64,15 @@ class TestHandler:
         payload = json.loads(mock_sfn.start_execution.call_args.kwargs["input"])
         assert payload["bucket"] == "lake-bucket"
         assert payload["order_month"] == "2025-04"
+
+    @patch.dict("os.environ", {"STATE_MACHINE_ARN": _STATE_MACHINE_ARN})
+    @patch("lambda_functions.start_pipeline.boto3")
+    def test_returns_no_bucket_when_records_empty(self, mock_boto3):
+        mock_sfn = MagicMock()
+        mock_sfn.list_executions.return_value = {"executions": []}
+        mock_boto3.client.return_value = mock_sfn
+
+        result = handler({"Records": []}, None)
+
+        assert result == {"started": False, "reason": "no_bucket"}
+        mock_sfn.start_execution.assert_not_called()
