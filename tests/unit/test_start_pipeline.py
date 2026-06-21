@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from lambda_functions.start_pipeline import _derive_order_month, handler
 
+_STATE_MACHINE_ARN = "arn:aws:states:us-east-1:123:stateMachine:test"
+
 
 class TestDeriveOrderMonth:
     def test_parses_month_abbreviation(self):
@@ -20,7 +22,7 @@ class TestDeriveOrderMonth:
 
 
 class TestHandler:
-    @patch.dict("os.environ", {"STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:test"})
+    @patch.dict("os.environ", {"STATE_MACHINE_ARN": _STATE_MACHINE_ARN})
     @patch("lambda_functions.start_pipeline.boto3")
     def test_skips_when_execution_running(self, mock_boto3):
         mock_sfn = MagicMock()
@@ -32,7 +34,7 @@ class TestHandler:
         assert result["started"] is False
         mock_sfn.start_execution.assert_not_called()
 
-    @patch.dict("os.environ", {"STATE_MACHINE_ARN": "arn:aws:states:us-east-1:123:stateMachine:test"})
+    @patch.dict("os.environ", {"STATE_MACHINE_ARN": _STATE_MACHINE_ARN})
     @patch("lambda_functions.start_pipeline.boto3")
     def test_starts_execution(self, mock_boto3):
         mock_sfn = MagicMock()

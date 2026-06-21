@@ -67,8 +67,8 @@ resource "aws_iam_role_policy" "sfn" {
 
 data "aws_iam_policy_document" "sfn" {
   statement {
-    sid     = "SfnGlueJobs"
-    actions = ["glue:StartJobRun", "glue:GetJobRun", "glue:GetJobRuns", "glue:BatchStopJobRun"]
+    sid       = "SfnGlueJobs"
+    actions   = ["glue:StartJobRun", "glue:GetJobRun", "glue:GetJobRuns", "glue:BatchStopJobRun"]
     resources = [var.glue_ingest_job_arn]
   }
 
@@ -84,8 +84,8 @@ data "aws_iam_policy_document" "sfn" {
   }
 
   statement {
-    sid       = "SfnAthenaS3"
-    actions   = ["s3:PutObject", "s3:GetObject", "s3:ListBucket", "s3:GetBucketLocation"]
+    sid     = "SfnAthenaS3"
+    actions = ["s3:PutObject", "s3:GetObject", "s3:ListBucket", "s3:GetBucketLocation"]
     resources = [
       "arn:aws:s3:::${var.bucket}",
       "arn:aws:s3:::${var.bucket}/athena-results/*",
@@ -145,11 +145,11 @@ resource "aws_sfn_state_machine" "pipeline" {
   definition = templatefile(
     "${path.module}/../../../src/step_functions/state_machine.asl.json",
     {
-      project              = var.project
-      catalog_db_name      = var.catalog_db_name
-      workgroup_name       = var.workgroup_name
-      sns_topic_arn        = aws_sns_topic.pipeline_alerts.arn
-      archive_lambda_name  = aws_lambda_function.archive_files.function_name
+      project             = var.project
+      catalog_db_name     = var.catalog_db_name
+      workgroup_name      = var.workgroup_name
+      sns_topic_arn       = aws_sns_topic.pipeline_alerts.arn
+      archive_lambda_name = aws_lambda_function.archive_files.function_name
     }
   )
 
@@ -244,9 +244,9 @@ resource "aws_lambda_function" "start_pipeline" {
 }
 
 resource "aws_lambda_event_source_mapping" "start_pipeline" {
-  event_source_arn = aws_sqs_queue.pipeline.arn
-  function_name    = aws_lambda_function.start_pipeline.arn
-  batch_size       = 10
+  event_source_arn                   = aws_sqs_queue.pipeline.arn
+  function_name                      = aws_lambda_function.start_pipeline.arn
+  batch_size                         = 10
   maximum_batching_window_in_seconds = 30
 }
 
@@ -282,8 +282,8 @@ data "aws_iam_policy_document" "archive_files" {
   }
 
   statement {
-    sid     = "ArchiveFilesS3List"
-    actions = ["s3:ListBucket"]
+    sid       = "ArchiveFilesS3List"
+    actions   = ["s3:ListBucket"]
     resources = ["arn:aws:s3:::${var.bucket}"]
     condition {
       test     = "StringLike"
