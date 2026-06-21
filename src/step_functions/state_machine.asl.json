@@ -1,17 +1,20 @@
 {
-  "Comment": "E-Commerce Lakehouse Pipeline — Delta Lake on AWS. Orchestrates products+orders parallel ingest, order_items ingest, Glue crawler, Athena validation, and archive.",
-  "StartAt": "StartIngestion",
+  "Comment": "E-Commerce Lakehouse Pipeline — Glue Delta ingest, Athena smoke check, Lambda archival.",
+  "StartAt": "PrepareContext",
   "States": {
 
-    "StartIngestion": {
+    "PrepareContext": {
       "Type": "Pass",
-      "Comment": "Pipeline entry point. All per-dataset S3 paths are built from $.bucket at runtime.",
+      "Parameters": {
+        "bucket.$": "$.bucket",
+        "order_month.$": "$.order_month",
+        "run_id.$": "$$.Execution.Name"
+      },
       "Next": "IngestParallel"
     },
 
     "IngestParallel": {
       "Type": "Parallel",
-      "Comment": "Products and orders ingest run concurrently; order_items depends on both completing.",
       "Branches": [
         {
           "StartAt": "IngestProducts",
@@ -26,7 +29,8 @@
                   "--raw_prefix.$": "States.Format('s3://{}/raw/products/', $.bucket)",
                   "--target_path.$": "States.Format('s3://{}/lakehouse-dwh/products/', $.bucket)",
                   "--quarantine_path.$": "States.Format('s3://{}/quarantine/products/', $.bucket)",
-                  "--run_id.$": "$$$$.Execution.Name"
+                  "--catalog_db": "${catalog_db_name}",
+                  "--run_id.$": "$.run_id"
                 }
               },
               "Retry": [
@@ -54,7 +58,8 @@
                   "--raw_prefix.$": "States.Format('s3://{}/raw/orders/', $.bucket)",
                   "--target_path.$": "States.Format('s3://{}/lakehouse-dwh/orders/', $.bucket)",
                   "--quarantine_path.$": "States.Format('s3://{}/quarantine/orders/', $.bucket)",
-                  "--run_id.$": "$$$$.Execution.Name"
+                  "--catalog_db": "${catalog_db_name}",
+                  "--run_id.$": "$.run_id"
                 }
               },
               "Retry": [
@@ -77,12 +82,12 @@
           "ResultPath": "$.Error"
         }
       ],
+      "ResultPath": "$.IngestParallelResult",
       "Next": "IngestOrderItems"
     },
 
     "IngestOrderItems": {
       "Type": "Task",
-      "Comment": "Depends on both products and orders Delta tables being present.",
       "Resource": "arn:aws:states:::glue:startJobRun.sync",
       "Parameters": {
         "JobName": "${project}-ingest-delta",
@@ -93,7 +98,8 @@
           "--quarantine_path.$": "States.Format('s3://{}/quarantine/order_items/', $.bucket)",
           "--orders_path.$": "States.Format('s3://{}/lakehouse-dwh/orders/', $.bucket)",
           "--products_path.$": "States.Format('s3://{}/lakehouse-dwh/products/', $.bucket)",
-          "--run_id.$": "$$$$.Execution.Name"
+          "--catalog_db": "${catalog_db_name}",
+          "--run_id.$": "$.run_id"
         }
       },
       "Retry": [
@@ -111,81 +117,24 @@
           "ResultPath": "$.Error"
         }
       ],
-      "Next": "StartCrawler"
+      "Next": "RunAthenaValidation"
     },
 
-    "StartCrawler": {
+    "RunAthenaValidation": {
       "Type": "Task",
-      "Resource": "arn:aws:states:::aws-sdk:glue:startCrawler",
-      "Parameters": {
-        "Name": "${project}-crawler"
-      },
-      "ResultPath": null,
-      "Catch": [
-        {
-          "ErrorEquals": ["Glue.CrawlerRunningException"],
-          "Comment": "Crawler already running (concurrent trigger) — skip to wait loop.",
-          "Next": "WaitForCrawler",
-          "ResultPath": "$.CrawlerRunningError"
-        }
-      ],
-      "Next": "WaitForCrawler"
-    },
-
-    "WaitForCrawler": {
-      "Type": "Wait",
-      "Seconds": 30,
-      "Next": "PollCrawler"
-    },
-
-    "PollCrawler": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::aws-sdk:glue:getCrawler",
-      "Parameters": {
-        "Name": "${project}-crawler"
-      },
-      "ResultPath": "$.CrawlerResult",
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 2,
-          "BackoffRate": 2.0,
-          "IntervalSeconds": 30
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "Next": "IsCrawlerReady"
-    },
-
-    "IsCrawlerReady": {
-      "Type": "Choice",
-      "Choices": [
-        {
-          "Variable": "$.CrawlerResult.Crawler.State",
-          "StringEquals": "READY",
-          "Next": "RunAthenaValidationProducts"
-        }
-      ],
-      "Default": "WaitForCrawler"
-    },
-
-    "RunAthenaValidationProducts": {
-      "Type": "Task",
+      "Comment": "Single smoke query — all three tables must have rows.",
       "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
       "Parameters": {
-        "QueryString": "SELECT COUNT(*) AS cnt FROM products",
+        "QueryString.$": "States.Format('SELECT (SELECT COUNT(*) FROM products) + (SELECT COUNT(*) FROM orders WHERE order_month = \\'{}\\') + (SELECT COUNT(*) FROM order_items WHERE order_month = \\'{}\\') AS total_rows', $.order_month, $.order_month)",
         "WorkGroup": "${workgroup_name}",
+        "QueryExecutionContext": {
+          "Database": "${catalog_db_name}"
+        },
         "ResultConfiguration": {
           "OutputLocation.$": "States.Format('s3://{}/athena-results/', $.bucket)"
         }
       },
-      "ResultPath": "$.AthenaProducts",
+      "ResultPath": "$.AthenaValidation",
       "Retry": [
         {
           "ErrorEquals": ["States.ALL"],
@@ -201,14 +150,14 @@
           "ResultPath": "$.Error"
         }
       ],
-      "Next": "GetAthenaResultsProducts"
+      "Next": "GetAthenaResults"
     },
 
-    "GetAthenaResultsProducts": {
+    "GetAthenaResults": {
       "Type": "Task",
       "Resource": "arn:aws:states:::aws-sdk:athena:getQueryResults",
       "Parameters": {
-        "QueryExecutionId.$": "$.AthenaProducts.QueryExecution.QueryExecutionId"
+        "QueryExecutionId.$": "$.AthenaValidation.QueryExecution.QueryExecutionId"
       },
       "ResultPath": "$.QueryResults",
       "Retry": [
@@ -226,147 +175,10 @@
           "ResultPath": "$.Error"
         }
       ],
-      "Next": "CheckRowCountProducts"
+      "Next": "CheckRowCount"
     },
 
-    "CheckRowCountProducts": {
-      "Type": "Choice",
-      "Comment": "Row[0] = header, Row[1] = COUNT(*) value.",
-      "Choices": [
-        {
-          "Not": {
-            "Variable": "$.QueryResults.ResultSet.Rows[1].Data[0].VarCharValue",
-            "StringEquals": "0"
-          },
-          "Next": "RunAthenaValidationOrders"
-        }
-      ],
-      "Default": "PublishFailureAlert"
-    },
-
-    "RunAthenaValidationOrders": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
-      "Parameters": {
-        "QueryString.$": "States.Format('SELECT COUNT(*) AS cnt FROM orders WHERE order_month = ''{}''', $.order_month)",
-        "WorkGroup": "${workgroup_name}",
-        "ResultConfiguration": {
-          "OutputLocation.$": "States.Format('s3://{}/athena-results/', $.bucket)"
-        }
-      },
-      "ResultPath": "$.AthenaOrders",
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 2,
-          "BackoffRate": 2.0,
-          "IntervalSeconds": 10
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "Next": "GetAthenaResultsOrders"
-    },
-
-    "GetAthenaResultsOrders": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::aws-sdk:athena:getQueryResults",
-      "Parameters": {
-        "QueryExecutionId.$": "$.AthenaOrders.QueryExecution.QueryExecutionId"
-      },
-      "ResultPath": "$.QueryResults",
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 2,
-          "BackoffRate": 2.0,
-          "IntervalSeconds": 10
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "Next": "CheckRowCountOrders"
-    },
-
-    "CheckRowCountOrders": {
-      "Type": "Choice",
-      "Choices": [
-        {
-          "Not": {
-            "Variable": "$.QueryResults.ResultSet.Rows[1].Data[0].VarCharValue",
-            "StringEquals": "0"
-          },
-          "Next": "RunAthenaValidationOrderItems"
-        }
-      ],
-      "Default": "PublishFailureAlert"
-    },
-
-    "RunAthenaValidationOrderItems": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
-      "Parameters": {
-        "QueryString.$": "States.Format('SELECT COUNT(*) AS cnt FROM order_items WHERE order_month = ''{}''', $.order_month)",
-        "WorkGroup": "${workgroup_name}",
-        "ResultConfiguration": {
-          "OutputLocation.$": "States.Format('s3://{}/athena-results/', $.bucket)"
-        }
-      },
-      "ResultPath": "$.AthenaOrderItems",
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 2,
-          "BackoffRate": 2.0,
-          "IntervalSeconds": 10
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "Next": "GetAthenaResultsOrderItems"
-    },
-
-    "GetAthenaResultsOrderItems": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::aws-sdk:athena:getQueryResults",
-      "Parameters": {
-        "QueryExecutionId.$": "$.AthenaOrderItems.QueryExecution.QueryExecutionId"
-      },
-      "ResultPath": "$.QueryResults",
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 2,
-          "BackoffRate": 2.0,
-          "IntervalSeconds": 10
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "Next": "CheckRowCountOrderItems"
-    },
-
-    "CheckRowCountOrderItems": {
+    "CheckRowCount": {
       "Type": "Choice",
       "Choices": [
         {
@@ -382,15 +194,14 @@
 
     "ArchiveFiles": {
       "Type": "Task",
-      "Comment": "Copies raw files to archive zone and deletes originals after successful validation.",
-      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Comment": "Archive raw files via Lambda after successful validation.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
       "Parameters": {
-        "JobName": "${project}-archive-files",
-        "Arguments": {
-          "--dataset.$": "$.dataset",
-          "--raw_prefix.$": "$.raw_prefix",
-          "--archive_prefix.$": "$.archive_prefix",
-          "--run_id.$": "$$$$.Execution.Name"
+        "FunctionName": "${archive_lambda_name}",
+        "Payload": {
+          "bucket.$": "$.bucket",
+          "run_id.$": "$.run_id"
         }
       },
       "Retry": [
@@ -417,12 +228,11 @@
 
     "PublishFailureAlert": {
       "Type": "Task",
-      "Comment": "Publishes SNS alert on any pipeline failure before transitioning to PipelineFail.",
       "Resource": "arn:aws:states:::aws-sdk:sns:publish",
       "Parameters": {
         "TopicArn": "${sns_topic_arn}",
         "Subject": "Lakehouse Pipeline Failure",
-        "Message.$": "States.Format('Lakehouse pipeline failed — dataset: {}, execution: {}', $.dataset, $$$$.Execution.Name)"
+        "Message.$": "States.Format('Lakehouse pipeline failed — execution: {}, order_month: {}', $$.Execution.Name, $.order_month)"
       },
       "Next": "PipelineFail"
     },
