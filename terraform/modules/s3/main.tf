@@ -5,6 +5,10 @@ resource "aws_s3_bucket" "lakehouse" {
   tags = {
     Project = var.project
   }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_s3_bucket_versioning" "lakehouse" {

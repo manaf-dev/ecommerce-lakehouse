@@ -260,7 +260,7 @@ All AWS resources receive default tags via the provider: `Project`, `ManagedBy=t
 
 | Symptom | Where to look |
 |---|---|
-| CD `terraform plan` AccessDenied on S3 | Re-run `put-role-policy` — deploy role needs `s3:*` on lakehouse + tfstate bucket ARNs (Terraform reads many bucket APIs during plan) |
+| CD `terraform apply` tries to delete S3 bucket / `BucketNotEmpty` | Bucket is **tainted** in state after a failed apply — run `terraform untaint module.s3.aws_s3_bucket.lakehouse` against the remote backend, then re-run CD |
 | CD `terraform apply` 403 on tfstate bucket | `TF_STATE_BUCKET` in IAM policy does not match the GitHub `production` environment value |
 | Pipeline not starting | CloudWatch `/aws/lambda/<project>-start-pipeline`; SQS queue depth |
 | Step Functions failed | Step Functions execution history; `/aws/states/<project>-pipeline` |
