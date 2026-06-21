@@ -70,10 +70,20 @@ jobs:
       - name: Verify utils.zip structure
         run: make verify-zip
 
-      - name: Upload utils.zip (before Terraform plan)
-        run: >-
-          aws s3 cp dist/utils.zip
-          s3://${{ vars.LAKEHOUSE_BUCKET }}/scripts/utils.zip
+      - name: Upload utils.zip (if lakehouse bucket exists)
+        run: |
+          if aws s3api head-bucket --bucket "${{ vars.LAKEHOUSE_BUCKET }}" 2>/dev/null; then
+            aws s3 cp dist/utils.zip "s3://${{ vars.LAKEHOUSE_BUCKET }}/scripts/utils.zip"
+          else
+            echo "Lakehouse bucket not found — skipping pre-plan upload (first apply creates the bucket)."
+          fi
+
+      - name: Upload utils.zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: utils-zip
+          path: dist/utils.zip
+          if-no-files-found: error
 
       - name: Terraform init
         run: >-
@@ -123,6 +133,12 @@ jobs:
           name: tfplan
           path: terraform/main
 
+      - name: Download utils.zip artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: utils-zip
+          path: dist
+
       - name: Terraform init
         run: >-
           terraform -chdir=terraform/main init -input=false
@@ -131,3 +147,8 @@ jobs:
 
       - name: Terraform apply
         run: terraform -chdir=terraform/main apply -input=false tfplan
+
+      - name: Upload utils.zip to lakehouse bucket
+        run: >-
+          aws s3 cp dist/utils.zip
+          s3://${{ vars.LAKEHOUSE_BUCKET }}/scripts/utils.zip

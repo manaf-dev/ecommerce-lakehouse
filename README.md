@@ -250,7 +250,7 @@ Glue database: **`lakehouse_dwh`**
 
 Both `plan` and `deploy` use the GitHub **`production`** environment for secrets/variables. Configure required reviewers on that environment so `terraform plan` only runs after manual approval; `deploy` reuses the same approval for the workflow run.
 
-Glue job scripts are deployed by Terraform from the repository on each apply. Only `utils.zip` is uploaded before plan.
+Glue job scripts are deployed by Terraform from the repository on each apply. `utils.zip` is uploaded after apply (skipped pre-plan on first deploy when the lakehouse bucket does not exist yet).
 
 All AWS resources receive default tags via the provider: `Project`, `ManagedBy=terraform`, `Environment=production`.
 
