@@ -9,7 +9,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pandas as pd
-from pyspark.sql.types import DateType, DoubleType, FloatType, StructType, TimestampType
+from pyspark.sql.types import (
+    DateType,
+    DoubleType,
+    FloatType,
+    IntegerType,
+    LongType,
+    ShortType,
+    StructType,
+    TimestampType,
+)
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession  # pragma: no cover
@@ -22,7 +31,7 @@ def _coerce_pandas_types(df: pd.DataFrame, schema: StructType) -> pd.DataFrame:
     - ISO-8601 strings are rejected for TimestampType/DateType
     - int64 is rejected for DoubleType/FloatType
     pandas reads XLSX data with whatever dtype fits the raw cell values, so
-    whole-number float columns arrive as int64 and timestamp strings as object.
+    whole-number float columns arrive as int64/float64 and timestamp strings as object.
     """
     for field in schema.fields:
         if field.name not in df.columns:
@@ -31,6 +40,9 @@ def _coerce_pandas_types(df: pd.DataFrame, schema: StructType) -> pd.DataFrame:
             df[field.name] = pd.to_datetime(df[field.name], errors="coerce")
         elif isinstance(field.dataType, DateType):
             df[field.name] = pd.to_datetime(df[field.name], errors="coerce").dt.date
+        elif isinstance(field.dataType, (IntegerType, LongType, ShortType)):
+            # Excel often returns 1.0 for integer columns; Spark 3.5 rejects floats for LongType.
+            df[field.name] = pd.to_numeric(df[field.name], errors="coerce").astype("Int64")
         elif isinstance(field.dataType, (DoubleType, FloatType)):
             # pd.to_numeric alone returns int64 for whole-number columns;
             # force float64 so Spark DoubleType accepts the values.
