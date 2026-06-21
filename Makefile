@@ -32,8 +32,8 @@ upload-data:
 	python scripts/upload_sample_data.py
 
 tf-validate:
-	terraform -chdir=terraform/environments/prod init -backend=false -input=false
-	terraform -chdir=terraform/environments/prod validate
+	terraform -chdir=terraform/main init -backend=false -input=false
+	terraform -chdir=terraform/main validate
 
 tf-plan:
-	terraform -chdir=terraform/environments/prod plan
+	terraform -chdir=terraform/main plan

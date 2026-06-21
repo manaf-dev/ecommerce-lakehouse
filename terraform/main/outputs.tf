@@ -13,17 +13,17 @@ output "glue_ingest_job_name" {
   value       = module.glue.ingest_job_name
 }
 
-output "glue_archive_job_name" {
-  description = "Glue archive-files job name"
-  value       = module.glue.archive_job_name
-}
-
-output "crawler_name" {
-  description = "Glue crawler name"
-  value       = module.glue.crawler_name
+output "archive_lambda_name" {
+  description = "Lambda archive-files function name"
+  value       = module.step_functions.archive_lambda_name
 }
 
 output "athena_workgroup" {
   description = "Athena workgroup name"
   value       = module.athena.workgroup_name
+}
+
+output "catalog_db_name" {
+  description = "Glue Data Catalog database name"
+  value       = module.glue.catalog_db_name
 }
