@@ -28,7 +28,7 @@ from pathlib import Path
 
 from pyspark.sql import Window
 from pyspark.sql import functions as F
-from pyspark.sql.types import StructType
+from pyspark.sql.types import StructField, StructType
 
 from utils.delta_helpers import merge_to_delta, optimize_and_zorder, register_delta_table
 from utils.logger import get_logger
@@ -47,9 +47,15 @@ _DERIVED_COLS: dict[str, set[str]] = {
 
 
 def _get_read_schema(dataset: str, schema: StructType) -> StructType:
-    """Return a schema with derived columns removed (they are added post-read)."""
+    """Return a permissive read schema: derived cols removed, all fields nullable."""
     excluded = _DERIVED_COLS.get(dataset, set())
-    return StructType([f for f in schema.fields if f.name not in excluded])
+    return StructType(
+        [
+            StructField(field.name, field.dataType, nullable=True)
+            for field in schema.fields
+            if field.name not in excluded
+        ]
+    )
 
 
 def _list_files(raw_prefix: str) -> list[str]:

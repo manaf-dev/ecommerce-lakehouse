@@ -16,7 +16,11 @@ _SIMPLE_SCHEMA = StructType(
 )
 
 _ORDERS_READ_SCHEMA = StructType(
-    [field for field in ORDERS_SCHEMA.fields if field.name != "order_month"]
+    [
+        StructField(field.name, field.dataType, nullable=True)
+        for field in ORDERS_SCHEMA.fields
+        if field.name != "order_month"
+    ]
 )
 
 

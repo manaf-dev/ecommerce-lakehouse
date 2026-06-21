@@ -16,6 +16,7 @@ from pyspark.sql.types import (
     IntegerType,
     LongType,
     ShortType,
+    StringType,
     StructType,
     TimestampType,
 )
@@ -33,6 +34,29 @@ def _sanitize_value(value: Any) -> Any:
             return None
     except (TypeError, ValueError):
         return value
+    return value
+
+
+def _cast_value_for_spark(value: Any, data_type: Any) -> Any:
+    """Cast a single cell value to a Python type Spark accepts for *data_type*."""
+    value = _sanitize_value(value)
+    if value is None:
+        return None
+    if isinstance(data_type, TimestampType):
+        if isinstance(value, pd.Timestamp):
+            return value.to_pydatetime()
+        return pd.to_datetime(value).to_pydatetime()
+    if isinstance(data_type, DateType):
+        if hasattr(value, "year") and not isinstance(value, pd.Timestamp):
+            return value
+        parsed = pd.to_datetime(value, errors="coerce")
+        return None if pd.isna(parsed) else parsed.date()
+    if isinstance(data_type, (IntegerType, LongType, ShortType)):
+        return int(float(value))
+    if isinstance(data_type, (DoubleType, FloatType)):
+        return float(value)
+    if isinstance(data_type, StringType):
+        return str(value)
     return value
 
 
@@ -64,8 +88,11 @@ def _rows_for_schema(df: pd.DataFrame, schema: StructType) -> list[dict[str, Any
             aligned[field.name] = None
     ordered = aligned[[field.name for field in schema.fields]]
     return [
-        {key: _sanitize_value(value) for key, value in row.items()}
-        for row in ordered.to_dict("records")
+        {
+            field.name: _cast_value_for_spark(record[field.name], field.dataType)
+            for field in schema.fields
+        }
+        for record in ordered.to_dict("records")
     ]
 
 
