@@ -8,18 +8,18 @@ variable "project" {
   type        = string
 }
 
-variable "sfn_role_arn" {
-  description = "ARN of the Step Functions execution IAM role"
-  type        = string
-}
-
-variable "eventbridge_role_arn" {
-  description = "ARN of the EventBridge execution IAM role"
+variable "catalog_db_name" {
+  description = "Glue Data Catalog database name"
   type        = string
 }
 
 variable "workgroup_name" {
   description = "Athena workgroup name"
+  type        = string
+}
+
+variable "glue_ingest_job_arn" {
+  description = "ARN of the Glue ingest-delta job"
   type        = string
 }
 
