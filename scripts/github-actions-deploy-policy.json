@@ -129,6 +129,7 @@
         "lambda:PutFunctionConcurrency",
         "lambda:DeleteFunctionConcurrency",
         "lambda:GetFunctionConcurrency",
+        "lambda:GetFunctionCodeSigningConfig",
         "lambda:TagResource",
         "lambda:UntagResource",
         "lambda:ListTags"
