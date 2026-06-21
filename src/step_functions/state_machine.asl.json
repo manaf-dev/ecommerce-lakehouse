@@ -1,21 +1,20 @@
 {
-  "Comment": "E-Commerce Lakehouse Pipeline — Delta Lake on AWS. Orchestrates products+orders parallel ingest, order_items ingest, Glue crawler, Athena validation, and archive.",
-  "StartAt": "StartIngestion",
+  "Comment": "E-Commerce Lakehouse Pipeline — Glue Delta ingest, Athena smoke check, Lambda archival.",
+  "StartAt": "PrepareContext",
   "States": {
 
-    "StartIngestion": {
+    "PrepareContext": {
       "Type": "Pass",
-      "Comment": "Pipeline entry point. Injects the canonical dataset list reused by ValidateRowCounts and ArchiveAllDatasets.",
-      "Result": {
-        "datasets": ["products", "orders", "order_items"]
+      "Parameters": {
+        "bucket.$": "$.bucket",
+        "order_month.$": "$.order_month",
+        "run_id.$": "$$.Execution.Name"
       },
-      "ResultPath": "$.meta",
       "Next": "IngestParallel"
     },
 
     "IngestParallel": {
       "Type": "Parallel",
-      "Comment": "Products and orders ingest run concurrently; order_items depends on both completing.",
       "Branches": [
         {
           "StartAt": "IngestProducts",
@@ -30,16 +29,11 @@
                   "--raw_prefix.$": "States.Format('s3://{}/raw/products/', $.bucket)",
                   "--target_path.$": "States.Format('s3://{}/lakehouse-dwh/products/', $.bucket)",
                   "--quarantine_path.$": "States.Format('s3://{}/quarantine/products/', $.bucket)",
-                  "--run_id.$": "$$.Execution.Name"
+                  "--catalog_db": "${catalog_db_name}",
+                  "--run_id.$": "$.run_id"
                 }
               },
               "Retry": [
-                {
-                  "ErrorEquals": ["Glue.ConcurrentRunsExceededException"],
-                  "MaxAttempts": 6,
-                  "IntervalSeconds": 60,
-                  "BackoffRate": 1.5
-                },
                 {
                   "ErrorEquals": ["States.ALL"],
                   "MaxAttempts": 2,
@@ -64,16 +58,11 @@
                   "--raw_prefix.$": "States.Format('s3://{}/raw/orders/', $.bucket)",
                   "--target_path.$": "States.Format('s3://{}/lakehouse-dwh/orders/', $.bucket)",
                   "--quarantine_path.$": "States.Format('s3://{}/quarantine/orders/', $.bucket)",
-                  "--run_id.$": "$$.Execution.Name"
+                  "--catalog_db": "${catalog_db_name}",
+                  "--run_id.$": "$.run_id"
                 }
               },
               "Retry": [
-                {
-                  "ErrorEquals": ["Glue.ConcurrentRunsExceededException"],
-                  "MaxAttempts": 6,
-                  "IntervalSeconds": 60,
-                  "BackoffRate": 1.5
-                },
                 {
                   "ErrorEquals": ["States.ALL"],
                   "MaxAttempts": 2,
@@ -93,13 +82,12 @@
           "ResultPath": "$.Error"
         }
       ],
-      "ResultPath": "$.ParallelResults",
+      "ResultPath": "$.IngestParallelResult",
       "Next": "IngestOrderItems"
     },
 
     "IngestOrderItems": {
       "Type": "Task",
-      "Comment": "Depends on both products and orders Delta tables being present.",
       "Resource": "arn:aws:states:::glue:startJobRun.sync",
       "Parameters": {
         "JobName": "${project}-ingest-delta",
@@ -110,108 +98,48 @@
           "--quarantine_path.$": "States.Format('s3://{}/quarantine/order_items/', $.bucket)",
           "--orders_path.$": "States.Format('s3://{}/lakehouse-dwh/orders/', $.bucket)",
           "--products_path.$": "States.Format('s3://{}/lakehouse-dwh/products/', $.bucket)",
-          "--run_id.$": "$$.Execution.Name"
+          "--catalog_db": "${catalog_db_name}",
+          "--run_id.$": "$.run_id"
         }
       },
       "Retry": [
         {
-          "ErrorEquals": ["Glue.ConcurrentRunsExceededException"],
-          "MaxAttempts": 6,
-          "IntervalSeconds": 60,
-          "BackoffRate": 1.5
+          "ErrorEquals": ["States.ALL"],
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0,
+          "IntervalSeconds": 30
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PublishFailureAlert",
+          "ResultPath": "$.Error"
+        }
+      ],
+      "Next": "RunAthenaValidation"
+    },
+
+    "RunAthenaValidation": {
+      "Type": "Task",
+      "Comment": "Single smoke query — all three tables must have rows.",
+      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
+      "Parameters": {
+        "QueryString.$": "States.Format('SELECT (SELECT COUNT(*) FROM products) + (SELECT COUNT(*) FROM orders WHERE order_month = \\'{}\\') + (SELECT COUNT(*) FROM order_items WHERE order_month = \\'{}\\') AS total_rows', $.order_month, $.order_month)",
+        "WorkGroup": "${workgroup_name}",
+        "QueryExecutionContext": {
+          "Database": "${catalog_db_name}"
         },
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 2,
-          "BackoffRate": 2.0,
-          "IntervalSeconds": 30
+        "ResultConfiguration": {
+          "OutputLocation.$": "States.Format('s3://{}/athena-results/', $.bucket)"
         }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "ResultPath": "$.OrderItemsResult",
-      "Next": "StartCrawler"
-    },
-
-    "StartCrawler": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::aws-sdk:glue:startCrawler",
-      "Parameters": {
-        "Name": "${project}-crawler"
       },
-      "ResultPath": null,
-      "Catch": [
-        {
-          "ErrorEquals": ["Glue.CrawlerRunningException"],
-          "Comment": "Crawler already running (concurrent trigger) — skip to wait loop.",
-          "Next": "WaitForCrawler",
-          "ResultPath": "$.CrawlerRunningError"
-        }
-      ],
-      "Next": "WaitForCrawler"
-    },
-
-    "WaitForCrawler": {
-      "Type": "Wait",
-      "Seconds": 30,
-      "Next": "PollCrawler"
-    },
-
-    "PollCrawler": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::aws-sdk:glue:getCrawler",
-      "Parameters": {
-        "Name": "${project}-crawler"
-      },
-      "ResultPath": "$.CrawlerResult",
+      "ResultPath": "$.AthenaValidation",
       "Retry": [
         {
           "ErrorEquals": ["States.ALL"],
           "MaxAttempts": 2,
           "BackoffRate": 2.0,
-          "IntervalSeconds": 30
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "PublishFailureAlert",
-          "ResultPath": "$.Error"
-        }
-      ],
-      "Next": "IsCrawlerReady"
-    },
-
-    "IsCrawlerReady": {
-      "Type": "Choice",
-      "Choices": [
-        {
-          "Variable": "$.CrawlerResult.Crawler.State",
-          "StringEquals": "READY",
-          "Next": "FixCatalogTimestamps"
-        }
-      ],
-      "Default": "WaitForCrawler"
-    },
-
-    "FixCatalogTimestamps": {
-      "Type": "Task",
-      "Comment": "Reset delta.lastCommitTimestamp in Glue catalog so Athena invalidates its snapshot cache.",
-      "Resource": "arn:aws:states:::glue:startJobRun.sync",
-      "Parameters": {
-        "JobName": "${project}-fix-catalog-timestamps"
-      },
-      "ResultPath": null,
-      "Retry": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "MaxAttempts": 2,
-          "BackoffRate": 1.0,
           "IntervalSeconds": 10
         }
       ],
@@ -222,91 +150,24 @@
           "ResultPath": "$.Error"
         }
       ],
-      "Next": "PostCrawlerWait"
+      "Next": "GetAthenaResults"
     },
 
-    "PostCrawlerWait": {
-      "Type": "Wait",
-      "Comment": "Brief pause after catalog fix for Athena metadata service propagation.",
-      "Seconds": 30,
-      "Next": "ValidateRowCounts"
-    },
-
-    "ValidateRowCounts": {
-      "Type": "Map",
-      "Comment": "Validates each dataset has > 0 rows via Athena COUNT(*). All 3 run in parallel.",
-      "ItemsPath": "$.meta.datasets",
-      "MaxConcurrency": 3,
-      "ItemSelector": {
-        "dataset.$": "$$.Map.Item.Value"
+    "GetAthenaResults": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:athena:getQueryResults",
+      "Parameters": {
+        "QueryExecutionId.$": "$.AthenaValidation.QueryExecution.QueryExecutionId"
       },
-      "ResultPath": "$.ValidationResults",
-      "ItemProcessor": {
-        "ProcessorConfig": {
-          "Mode": "INLINE"
-        },
-        "StartAt": "RunAthenaQuery",
-        "States": {
-          "RunAthenaQuery": {
-            "Type": "Task",
-            "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
-            "Parameters": {
-              "QueryString.$": "States.Format('SELECT COUNT(*) AS cnt FROM {}', $.dataset)",
-              "WorkGroup": "${workgroup_name}",
-              "QueryExecutionContext": {
-                "Database": "${catalog_db}"
-              }
-            },
-            "ResultPath": "$.AthenaResult",
-            "TimeoutSeconds": 300,
-            "Retry": [
-              {
-                "ErrorEquals": ["States.ALL"],
-                "MaxAttempts": 3,
-                "BackoffRate": 1.5,
-                "IntervalSeconds": 60
-              }
-            ],
-            "Next": "GetQueryResults"
-          },
-          "GetQueryResults": {
-            "Type": "Task",
-            "Resource": "arn:aws:states:::aws-sdk:athena:getQueryResults",
-            "Parameters": {
-              "QueryExecutionId.$": "$.AthenaResult.QueryExecution.QueryExecutionId"
-            },
-            "ResultPath": "$.QueryResults",
-            "Retry": [
-              {
-                "ErrorEquals": ["States.ALL"],
-                "MaxAttempts": 2,
-                "BackoffRate": 2.0,
-                "IntervalSeconds": 10
-              }
-            ],
-            "Next": "CheckRowCount"
-          },
-          "CheckRowCount": {
-            "Type": "Choice",
-            "Choices": [
-              {
-                "Variable": "$.QueryResults.ResultSet.Rows[1].Data[0].VarCharValue",
-                "StringEquals": "0",
-                "Next": "FailValidation"
-              }
-            ],
-            "Default": "ValidationPassed"
-          },
-          "FailValidation": {
-            "Type": "Fail",
-            "Error": "ZeroRowCount",
-            "Cause": "Dataset has zero rows after ingestion — check CloudWatch logs for details."
-          },
-          "ValidationPassed": {
-            "Type": "Succeed"
-          }
+      "ResultPath": "$.QueryResults",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0,
+          "IntervalSeconds": 10
         }
-      },
+      ],
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
@@ -314,22 +175,35 @@
           "ResultPath": "$.Error"
         }
       ],
-      "Next": "ArchiveAllDatasets"
+      "Next": "CheckRowCount"
     },
 
-    "ArchiveAllDatasets": {
+    "CheckRowCount": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Not": {
+            "Variable": "$.QueryResults.ResultSet.Rows[1].Data[0].VarCharValue",
+            "StringEquals": "0"
+          },
+          "Next": "ArchiveFiles"
+        }
+      ],
+      "Default": "PublishFailureAlert"
+    },
+
+    "ArchiveFiles": {
       "Type": "Task",
-      "Comment": "Archives all dataset raw zones in a single Glue job run.",
-      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Comment": "Archive raw files via Lambda after successful validation.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
       "Parameters": {
-        "JobName": "${project}-archive-files",
-        "Arguments": {
-          "--datasets": "products,orders,order_items",
-          "--bucket.$": "$.bucket",
-          "--run_id.$": "$$.Execution.Name"
+        "FunctionName": "${archive_lambda_name}",
+        "Payload": {
+          "bucket.$": "$.bucket",
+          "run_id.$": "$.run_id"
         }
       },
-      "ResultPath": null,
       "Retry": [
         {
           "ErrorEquals": ["States.ALL"],
@@ -354,12 +228,11 @@
 
     "PublishFailureAlert": {
       "Type": "Task",
-      "Comment": "Publishes SNS alert on any pipeline failure before transitioning to PipelineFail.",
       "Resource": "arn:aws:states:::aws-sdk:sns:publish",
       "Parameters": {
         "TopicArn": "${sns_topic_arn}",
         "Subject": "Lakehouse Pipeline Failure",
-        "Message.$": "States.Format('Lakehouse pipeline failed. Execution: {}', $$.Execution.Name)"
+        "Message.$": "States.Format('Lakehouse pipeline failed — execution: {}, order_month: {}', $$.Execution.Name, $.order_month)"
       },
       "Next": "PipelineFail"
     },

@@ -28,13 +28,16 @@ from pathlib import Path
 
 from pyspark.sql import Window
 from pyspark.sql import functions as F
-from pyspark.sql.types import StructType
+from pyspark.sql.types import StructField, StructType
 
-from utils.delta_helpers import merge_to_delta, optimize_and_zorder
+from utils.delta_helpers import merge_to_delta, optimize_and_zorder, register_delta_table
 from utils.logger import get_logger
 from utils.readers import read_csv_to_spark, read_xlsx_to_spark
 from utils.schemas import DATASET_CONFIG
 from utils.validation import validate_order_items, validate_orders, validate_products
+
+# Skip OPTIMIZE for small batches — Glue billing is dominated by job startup.
+_OPTIMIZE_ROW_THRESHOLD = 500
 
 # Columns computed in the job rather than read from source files.
 _DERIVED_COLS: dict[str, set[str]] = {
@@ -44,9 +47,15 @@ _DERIVED_COLS: dict[str, set[str]] = {
 
 
 def _get_read_schema(dataset: str, schema: StructType) -> StructType:
-    """Return a schema with derived columns removed (they are added post-read)."""
+    """Return a permissive read schema: derived cols removed, all fields nullable."""
     excluded = _DERIVED_COLS.get(dataset, set())
-    return StructType([f for f in schema.fields if f.name not in excluded])
+    return StructType(
+        [
+            StructField(field.name, field.dataType, nullable=True)
+            for field in schema.fields
+            if field.name not in excluded
+        ]
+    )
 
 
 def _list_files(raw_prefix: str) -> list[str]:
@@ -163,8 +172,12 @@ def run_ingest(spark: object, args: dict) -> dict:
     merge_to_delta(spark, valid_df, target_path, pk=pk, partition_by=partition_by)
     logger.info(f"MERGE complete. Written: {valid_count}")
 
-    # ── 8. OPTIMIZE + ZORDER ─────────────────────────────────────────────────
-    if zorder_cols:
+    catalog_db = args.get("catalog_db")
+    if catalog_db:
+        register_delta_table(spark, target_path, catalog_db, dataset)
+        logger.info(f"Registered {catalog_db}.{dataset}")
+
+    if zorder_cols and valid_count >= _OPTIMIZE_ROW_THRESHOLD:
         optimize_and_zorder(spark, target_path, zorder_cols)
         logger.info("OPTIMIZE+ZORDER complete")
 
@@ -186,7 +199,15 @@ def main() -> None:
 
         params = getResolvedOptions(
             sys.argv,
-            ["JOB_NAME", "dataset", "raw_prefix", "target_path", "quarantine_path", "run_id"],
+            [
+                "JOB_NAME",
+                "dataset",
+                "raw_prefix",
+                "target_path",
+                "quarantine_path",
+                "run_id",
+                "catalog_db",
+            ],
         )
         sc = SparkContext()
         glue_ctx = GlueContext(sc)
@@ -220,6 +241,7 @@ def main() -> None:
         parser = argparse.ArgumentParser(description="Local ingest_delta runner")
         for flag in ["--dataset", "--raw_prefix", "--target_path", "--quarantine_path", "--run_id"]:
             parser.add_argument(flag)
+        parser.add_argument("--catalog_db", default="")
         parser.add_argument("--products_path", default="")
         parser.add_argument("--orders_path", default="")
         ns = parser.parse_args()

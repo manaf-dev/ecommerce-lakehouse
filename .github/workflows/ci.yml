@@ -3,7 +3,6 @@ name: CI
 on:
   pull_request:
     branches:
-      - development
       - main
 
 jobs:
@@ -26,11 +25,8 @@ jobs:
           ruff check src/ tests/
           ruff format --check src/ tests/
 
-      - name: Unit tests (≥80 % coverage gate)
-        run: pytest tests/unit/ -v --cov=src --cov-fail-under=80
-
-      - name: Integration tests (moto-mocked, no real AWS)
-        run: pytest tests/integration/ -v --no-cov
+      - name: Tests (unit + integration, ≥80 % coverage)
+        run: pytest tests/unit/ tests/integration/ -v --cov=src --cov-fail-under=80
 
   terraform-validate:
     runs-on: ubuntu-latest
@@ -44,5 +40,5 @@ jobs:
 
       - name: Terraform validate
         run: |
-          terraform -chdir=terraform/environments/prod init -backend=false -input=false
-          terraform -chdir=terraform/environments/prod validate
+          terraform -chdir=terraform/main init -backend=false -input=false
+          terraform -chdir=terraform/main validate

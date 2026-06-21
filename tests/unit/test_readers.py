@@ -5,13 +5,21 @@ import pytest
 from pyspark.sql.types import IntegerType, StringType, StructField, StructType
 
 from utils.readers import read_csv_to_spark, read_dataset, read_xlsx_to_spark
-from utils.schemas import PRODUCTS_SCHEMA
+from utils.schemas import ORDERS_SCHEMA, PRODUCTS_SCHEMA
 
 # Minimal schema for XLSX reader tests (avoids Timestamp/Date complexity)
 _SIMPLE_SCHEMA = StructType(
     [
         StructField("id", IntegerType(), nullable=True),
         StructField("name", StringType(), nullable=True),
+    ]
+)
+
+_ORDERS_READ_SCHEMA = StructType(
+    [
+        StructField(field.name, field.dataType, nullable=True)
+        for field in ORDERS_SCHEMA.fields
+        if field.name != "order_month"
     ]
 )
 
@@ -104,3 +112,38 @@ class TestReadXlsxToSpark:
         """read_dataset raises ValueError for unknown format."""
         with pytest.raises(ValueError, match="Unsupported source_format"):
             read_dataset(spark, "/fake/path", "parquet", _SIMPLE_SCHEMA)
+
+    def test_read_xlsx_orders_schema_with_nullable_longs(self, spark, tmp_path):
+        """Excel round-trip must not leave floats/NaN in LongType columns."""
+        from datetime import date, datetime
+
+        xlsx_path = tmp_path / "orders.xlsx"
+        df = pd.DataFrame(
+            [
+                {
+                    "order_id": 1,
+                    "order_num": None,
+                    "user_id": 1,
+                    "order_timestamp": datetime(2025, 4, 1, 10, 0),
+                    "total_amount": 100.0,
+                    "date": date(2025, 4, 1),
+                },
+                {
+                    "order_id": None,
+                    "order_num": None,
+                    "user_id": 2,
+                    "order_timestamp": datetime(2025, 4, 2, 10, 0),
+                    "total_amount": 50.0,
+                    "date": date(2025, 4, 2),
+                },
+            ]
+        )
+        for col in ("order_id", "order_num", "user_id"):
+            df[col] = df[col].astype("Int64")
+        df.to_excel(str(xlsx_path), index=False)
+
+        result = read_xlsx_to_spark(spark, str(xlsx_path), _ORDERS_READ_SCHEMA)
+
+        assert result.count() == 2
+        assert result.schema["order_id"].dataType.simpleString() == "bigint"
+        assert result.filter("order_id IS NULL").count() == 1

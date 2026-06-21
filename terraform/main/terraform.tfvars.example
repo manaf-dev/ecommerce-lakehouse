@@ -1,0 +1,7 @@
+# Copy this file to terraform.tfvars and fill in real values.
+# terraform.tfvars is git-ignored — never commit it.
+
+project     = "ecommerce-lakehouse"
+region      = "eu-central-1"
+bucket      = "my-ecommerce-lakehouse-unique-suffix"
+alert_email = "alerts@example.com"

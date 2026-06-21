@@ -8,37 +8,13 @@ variable "project" {
   type        = string
 }
 
-variable "glue_ingest_job_arn" {
-  description = "ARN of the Glue ingest-delta job"
+variable "catalog_db" {
+  description = "Glue Data Catalog database name"
   type        = string
 }
 
-variable "glue_archive_job_arn" {
-  description = "ARN of the Glue archive-files job"
+variable "scripts_prefix" {
+  description = "S3 prefix for Glue job scripts"
   type        = string
-}
-
-variable "glue_fix_catalog_job_arn" {
-  description = "ARN of the Glue fix-catalog-timestamps job"
-  type        = string
-}
-
-variable "crawler_arn" {
-  description = "ARN of the Glue crawler"
-  type        = string
-}
-
-variable "athena_workgroup_arn" {
-  description = "ARN of the Athena workgroup"
-  type        = string
-}
-
-variable "sns_topic_arn" {
-  description = "ARN of the SNS pipeline-alerts topic"
-  type        = string
-}
-
-variable "state_machine_arn" {
-  description = "ARN of the Step Functions state machine (for EventBridge role)"
-  type        = string
+  default     = "scripts/"
 }

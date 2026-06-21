@@ -7,7 +7,14 @@ resource "aws_s3_bucket" "lakehouse" {
   }
 }
 
-# SSE-S3 encryption
+resource "aws_s3_bucket_versioning" "lakehouse" {
+  bucket = aws_s3_bucket.lakehouse.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "lakehouse" {
   bucket = aws_s3_bucket.lakehouse.id
 
@@ -18,7 +25,6 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "lakehouse" {
   }
 }
 
-# Block all public access
 resource "aws_s3_bucket_public_access_block" "lakehouse" {
   bucket = aws_s3_bucket.lakehouse.id
 
@@ -28,7 +34,29 @@ resource "aws_s3_bucket_public_access_block" "lakehouse" {
   restrict_public_buckets = true
 }
 
-# Lifecycle: quarantine (90-day expiry) + archive (Glacier after 1 year)
+resource "aws_s3_bucket_policy" "tls_only" {
+  bucket = aws_s3_bucket.lakehouse.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "DenyInsecureTransport"
+      Effect    = "Deny"
+      Principal = "*"
+      Action    = "s3:*"
+      Resource = [
+        aws_s3_bucket.lakehouse.arn,
+        "${aws_s3_bucket.lakehouse.arn}/*",
+      ]
+      Condition = {
+        Bool = {
+          "aws:SecureTransport" = "false"
+        }
+      }
+    }]
+  })
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "lakehouse" {
   bucket = aws_s3_bucket.lakehouse.id
 
@@ -46,11 +74,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "lakehouse" {
   }
 
   rule {
-    id     = "archive-glacier"
+    id     = "archived-glacier"
     status = "Enabled"
 
     filter {
-      prefix = "archive/"
+      prefix = "archived/"
     }
 
     transition {
@@ -73,31 +101,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "lakehouse" {
   }
 }
 
-# ─── Sample data uploads ───────────────────────────────────────────────────────
-resource "aws_s3_object" "products_csv" {
-  bucket = aws_s3_bucket.lakehouse.id
-  key    = "raw/products/products.csv"
-  source = "${path.module}/../../../data/products.csv"
-  etag   = filemd5("${path.module}/../../../data/products.csv")
-}
-
-resource "aws_s3_object" "orders_xlsx" {
-  bucket = aws_s3_bucket.lakehouse.id
-  key    = "raw/orders/orders_apr_2025.xlsx"
-  source = "${path.module}/../../../data/orders_apr_2025.xlsx"
-  etag   = filemd5("${path.module}/../../../data/orders_apr_2025.xlsx")
-}
-
-resource "aws_s3_object" "order_items_xlsx" {
-  bucket = aws_s3_bucket.lakehouse.id
-  key    = "raw/order_items/order_items_apr_2025.xlsx"
-  source = "${path.module}/../../../data/order_items_apr_2025.xlsx"
-  etag   = filemd5("${path.module}/../../../data/order_items_apr_2025.xlsx")
-}
-
-# ─── Placeholder for utils.zip ─────────────────────────────────────────────────
-# Content is managed by the CD pipeline (`make build-utils-zip && aws s3 cp`).
-# Terraform manages the key only; ignore content changes.
+# Placeholder for utils.zip — content is uploaded by CI/CD before terraform apply.
 resource "aws_s3_object" "utils_zip" {
   bucket  = aws_s3_bucket.lakehouse.id
   key     = "scripts/utils.zip"

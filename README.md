@@ -1,21 +1,21 @@
 # E-Commerce Lakehouse — Delta Lake on AWS
 
-A production-grade batch ETL pipeline that ingests CSV/XLSX e-commerce data from S3, validates and deduplicates records using AWS Glue PySpark with Delta Lake, and exposes clean data through Amazon Athena. Orchestrated by Step Functions; all infrastructure provisioned via Terraform.
+A production-grade batch ETL pipeline that ingests CSV/XLSX e-commerce data from S3, validates and deduplicates records using AWS Glue PySpark with Delta Lake, and exposes clean data through Amazon Athena. Orchestrated by Step Functions; infrastructure is provisioned with Terraform.
 
 ## Overview
 
 | Component | Technology |
 |---|---|
 | Ingestion | AWS Glue 5.0 (PySpark, Spark 3.5, Python 3.11) |
-| Archival | AWS Glue 3.0 (Python Shell, Python 3.9) |
-| Storage | Delta Lake on S3 |
-| Orchestration | AWS Step Functions (Express Workflow) |
-| Triggering | Amazon EventBridge (S3 `ObjectCreated`) |
+| Archival | AWS Lambda (`archive-files`) |
+| Storage | Delta Lake on S3 (`lakehouse-dwh/`) |
+| Orchestration | AWS Step Functions (**Standard** workflow) |
+| Triggering | S3 → EventBridge → SQS → Lambda (debounced) → Step Functions |
 | Query Engine | Amazon Athena (workgroup + Glue Data Catalog) |
 | Alerting | Amazon SNS |
 | Monitoring | Amazon CloudWatch |
-| IaC | Terraform ≥ 1.5 · AWS provider ≥ 5.x |
-| CI/CD | GitHub Actions (OIDC, no long-lived keys) |
+| IaC | Terraform ≥ 1.5 · AWS provider ~> 6.0 |
+| CI/CD | GitHub Actions (OIDC, main branch) |
 
 **Data scale**: ~1 K products · ~500 orders/month · ~2,768 order items/month.
 
@@ -23,110 +23,184 @@ A production-grade batch ETL pipeline that ingests CSV/XLSX e-commerce data from
 
 ![Architecture](docs/architecture.png)
 
-
 **Pipeline flow**:
 
-1. Source files (CSV/XLSX) are uploaded to `s3://<bucket>/raw/<dataset>/`
-2. S3 `ObjectCreated` fires an **EventBridge** rule → starts a **Step Functions** execution
-3. Step Functions runs **products** and **orders** Glue jobs in **parallel**, then **order_items** after both succeed
-4. Each Glue job (`ingest_delta.py --dataset <name>`) reads the raw file, applies StructType schema validation, writes valid rows as a Delta `MERGE` (upsert), and routes rejected rows to a quarantine prefix
-5. A **Glue Crawler** updates the Glue Data Catalog after all ingest jobs complete
-6. An **archive_files** Glue Python Shell job copies source files to `archive/` and removes the originals from `raw/`
-7. **Athena** queries the Delta tables via the Glue Data Catalog
-8. On any Step Functions failure an **SNS** notification is sent; execution history is logged to **CloudWatch**
+1. Source files land in `s3://<bucket>/raw/<dataset>/`
+2. S3 `ObjectCreated` → **EventBridge** → **SQS** (debounce queue)
+3. **Lambda** (`start-pipeline`, concurrency = 1) starts **one** Step Functions execution if none is running; derives `order_month` from filenames
+4. Step Functions runs **products** and **orders** Glue jobs in **parallel**, then **order_items**
+5. Each Glue job reads raw files, validates, quarantines rejects, MERGE-upserts into Delta tables under `lakehouse-dwh/`, and registers tables in the Glue catalog
+6. **Athena** smoke query confirms row counts across all three tables
+7. **Lambda** (`archive-files`) copies raw files to `archived/` and deletes originals
+8. On failure, **SNS** alert is published; Step Functions error logs go to **CloudWatch**
 
 ## Prerequisites
 
 | Tool | Version |
 |---|---|
-| Python | ≥ 3.11 (Glue runtime); 3.12 recommended for local dev |
-| Terraform | ≥ 1.5 |
-| AWS CLI | ≥ 2.x (configured with appropriate credentials) |
-| make | Any GNU-compatible version |
-| draw.io Desktop | Optional — only needed to export PNG from the architecture diagram |
-
-An AWS account with permissions to create IAM roles, S3 buckets, Glue resources, Step Functions, EventBridge rules, SNS topics, CloudWatch log groups, and Athena workgroups.
+| Python | ≥ 3.11 (Glue runtime); 3.12 for local dev |
+| Terraform | ≥ 1.5 (tested with 1.15.x) |
+| AWS CLI | ≥ 2.x |
+| make | GNU-compatible |
 
 ## Project Structure
 
 ```text
 ecommerce-lakehouse/
 ├── src/
+│   ├── lambda_functions/
+│   │   ├── start_pipeline.py
+│   │   └── archive_files.py
 │   ├── glue_jobs/
-│   │   ├── ingest_delta.py          # Glue 5.0 PySpark — --dataset {products|orders|order_items}
-│   │   └── archive_files.py         # Glue 3.0 Python Shell — move raw → archive
+│   │   └── ingest_delta.py
 │   ├── step_functions/
-│   │   └── state_machine.asl.json   # Step Functions ASL with Parallel state
+│   │   └── state_machine.asl.json
 │   └── utils/
-│       ├── __init__.py
-│       ├── logger.py                # Python logging → CloudWatch
-│       ├── schemas.py               # StructType per dataset
-│       ├── validation.py            # (valid_df, rejected_df) splitter
-│       ├── readers.py               # CSV/XLSX → Spark DataFrame
-│       ├── delta_helpers.py         # MERGE + OPTIMIZE/ZORDER wrappers
-│       └── s3_helpers.py            # S3 list/copy/move (boto3)
 ├── tests/
-│   ├── conftest.py                  # SparkSession fixture, moto fixtures
-│   ├── unit/                        # Fast tests — AWS mocked with moto
-│   └── integration/                 # Full job path against mocked S3 + local Delta
+│   ├── unit/
+│   └── integration/
 ├── terraform/
-│   ├── modules/                     # s3 · iam · glue · athena · step_functions
-│   └── environments/prod/
-│       ├── main.tf
-│       ├── variables.tf
-│       ├── outputs.tf
-│       └── terraform.tfvars.example # Copy → terraform.tfvars and fill in values
+│   ├── main/                       # Root module (single environment)
+│   └── modules/                    # s3 · iam · glue · athena · step_functions
 ├── .github/workflows/
-│   ├── ci.yml                       # Triggered on PRs to development + main
-│   └── cd.yml                       # Triggered on push to main (deploys to prod)
+│   ├── ci.yml                      # PRs to main
+│   └── cd.yml                      # Push to main
 ├── scripts/
-│   ├── clean.py                     # Remove dist/, __pycache__, .pytest_cache
-│   ├── upload_sample_data.py        # Upload data/ sample files to S3 raw zone
-│   └── athena_queries.sql           # Partition-pruned sample queries
-├── data/                            # Source sample files — DO NOT overwrite
-│   ├── products.csv
-│   ├── orders_apr_2025.xlsx
-│   └── order_items_apr_2025.xlsx
-├── docs/
-│   ├── architecture.drawio          # Editable diagram (native AWS icons)
-│   └── architecture.png             # Exported PNG for README embed
-├── dist/                            # git-ignored — generated by make build-utils-zip
-│   └── utils.zip
+│   ├── upload_sample_data.py
+│   ├── athena_queries.sql
+│   ├── github-actions-trust-policy.json
+│   └── github-actions-deploy-policy.json
+├── data/                           # Sample source files
 ├── Makefile
-├── pyproject.toml
 └── README.md
 ```
+
+## One-Time Bootstrap (AWS CLI)
+
+These resources are **not** managed by Terraform (chicken-and-egg for remote state and CI identity).
+
+### 1. Terraform remote state
+
+```bash
+export AWS_REGION=eu-central-1
+export PROJECT=ecommerce-lakehouse
+export TF_STATE_BUCKET="${PROJECT}-tfstate"
+
+# State bucket (eu-central-1)
+aws s3api create-bucket \
+  --bucket "${TF_STATE_BUCKET}" \
+  --region "${AWS_REGION}" \
+  --create-bucket-configuration LocationConstraint="${AWS_REGION}"
+
+aws s3api put-bucket-versioning \
+  --bucket "${TF_STATE_BUCKET}" \
+  --versioning-configuration Status=Enabled
+
+aws s3api put-bucket-encryption \
+  --bucket "${TF_STATE_BUCKET}" \
+  --server-side-encryption-configuration \
+  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+
+aws s3api put-public-access-block \
+  --bucket "${TF_STATE_BUCKET}" \
+  --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+```
+
+### 2. GitHub OIDC provider (once per AWS account)
+
+```bash
+aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com \
+  --thumbprint-list 6938fd4d98bab03fa02137a08d14e39eff254b61
+```
+
+### 3. GitHub Actions deploy role
+
+Policy templates live in `scripts/`. Replace `GITHUB_ORG`, `GITHUB_REPO`, and `LAKEHOUSE_BUCKET` with your values (`PROJECT` and `TF_STATE_BUCKET` are set from section 1).
+
+```bash
+export GITHUB_ORG=your-org
+export GITHUB_REPO=ecommerce-lakehouse
+export LAKEHOUSE_BUCKET=your-unique-lakehouse-bucket
+export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+# Trust policy (OIDC) — placeholders substituted via sed
+sed -e "s/ACCOUNT_ID/${ACCOUNT_ID}/g" \
+    -e "s/GITHUB_ORG/${GITHUB_ORG}/g" \
+    -e "s/GITHUB_REPO/${GITHUB_REPO}/g" \
+    scripts/github-actions-trust-policy.json > /tmp/github-trust.json
+
+aws iam create-role \
+  --role-name "${PROJECT}-github-actions" \
+  --assume-role-policy-document file:///tmp/github-trust.json
+
+# Least-privilege deploy policy scoped to lakehouse + tfstate buckets and PROJECT-* resources
+sed -e "s/ACCOUNT_ID/${ACCOUNT_ID}/g" \
+    -e "s/PROJECT/${PROJECT}/g" \
+    -e "s/LAKEHOUSE_BUCKET/${LAKEHOUSE_BUCKET}/g" \
+    -e "s/TF_STATE_BUCKET/${TF_STATE_BUCKET}/g" \
+    -e "s/AWS_REGION/${AWS_REGION}/g" \
+    scripts/github-actions-deploy-policy.json > /tmp/github-deploy.json
+
+aws iam put-role-policy \
+  --role-name "${PROJECT}-github-actions" \
+  --policy-name "${PROJECT}-github-actions-deploy" \
+  --policy-document file:///tmp/github-deploy.json
+```
+
+Trust policy subjects:
+
+| Subject | Used by |
+|---|---|
+| `ref:refs/heads/main` | CD workflow on push to `main` |
+| `environment:production` | CD `deploy` job (manual approval gate) |
+| `pull_request` | CI workflow on PRs to `main` |
+
+To update an existing role, use `aws iam update-assume-role-policy` and `aws iam put-role-policy` with the same `sed` commands.
+
+### 4. GitHub repository configuration
+
+| Name | Type | Value |
+|---|---|---|
+| `AWS_ROLE_ARN` | Secret | `arn:aws:iam::<account>:role/ecommerce-lakehouse-github-actions` |
+| `AWS_REGION` | Variable | e.g. `eu-central-1` |
+| `TF_STATE_BUCKET` | Variable | `ecommerce-lakehouse-tfstate` |
+| `TF_PROJECT` | Variable | `ecommerce-lakehouse` |
+| `LAKEHOUSE_BUCKET` | Variable | Your lakehouse bucket name |
+| `ALERT_EMAIL` | Secret | SNS alert email |
 
 ## Quick Start
 
 ```bash
-# 1. Clone and install dev dependencies
 git clone https://github.com/<org>/ecommerce-lakehouse.git
 cd ecommerce-lakehouse
 make install
 
-# 2. Run lint, type-check, and tests locally
 make lint
-make typecheck
 make test
 
-# 3. Package the shared utils layer
 make build-utils-zip
-make verify-zip          # Confirms utils/ root is present in the zip
+make verify-zip
 
-# 4. Configure Terraform
-cp terraform/environments/prod/terraform.tfvars.example \
-   terraform/environments/prod/terraform.tfvars
-# Edit terraform.tfvars with your project name, bucket name, and alert email
+cp terraform/main/terraform.tfvars.example terraform/main/terraform.tfvars
+# Edit terraform.tfvars
 
-# 5. Validate and plan infrastructure
 make tf-validate
-make tf-plan
 
-# 6. Deploy (or let the CD pipeline handle it on merge to main)
-terraform -chdir=terraform/environments/prod apply
+# First deploy (upload utils.zip, then apply)
+export LAKEHOUSE_BUCKET=<your-bucket>
+aws s3 cp dist/utils.zip "s3://${LAKEHOUSE_BUCKET}/scripts/utils.zip"
 
-# 7. Upload sample data to trigger the pipeline
+terraform -chdir=terraform/main init \
+  -backend-config="bucket=<tfstate-bucket>" \
+  -backend-config="region=<region>"
+
+terraform -chdir=terraform/main apply
+
+# Upload sample data (triggers pipeline via EventBridge after ~30s debounce)
+export LAKEHOUSE_BUCKET=<your-bucket>
 make upload-data
 ```
 
@@ -134,193 +208,63 @@ make upload-data
 
 | Target | Description |
 |---|---|
-| `make install` | Install the package and all dev dependencies (`pip install -e ".[dev]"`) |
-| `make lint` | Run `ruff check` and `ruff format --check` against `src/` and `tests/` |
-| `make format` | Auto-fix formatting with `ruff format` |
-| `make typecheck` | Run `mypy` static type checking against `src/` |
-| `make test` | Run all tests with coverage (fails if < 80 %) |
-| `make smoke` | Run import smoke test only — fast CI gate (`test_utils_imports.py`) |
-| `make build-utils-zip` | Package `src/utils/` into `dist/utils.zip` for Glue `--extra-py-files` |
-| `make verify-zip` | Assert that `utils/` root is present inside the zip |
-| `make clean` | Remove `dist/`, `__pycache__/`, `.pytest_cache/` |
-| `make upload-data` | Upload `data/` sample files to the S3 raw zone |
-| `make tf-validate` | Init (no backend) and validate Terraform configuration |
-| `make tf-plan` | Run `terraform plan` against `terraform/environments/prod/` |
+| `make install` | Install package + dev dependencies |
+| `make lint` | Ruff check + format check |
+| `make test` | Unit + integration tests (≥ 80 % coverage) |
+| `make build-utils-zip` | Package `src/utils/` for Glue `--extra-py-files` |
+| `make upload-data` | Upload `data/` sample files to S3 raw zone |
+| `make tf-validate` | `terraform validate` |
+| `make tf-plan` | `terraform plan` |
 
-## Infrastructure Setup
+## S3 Zone Layout
 
-All AWS resources are managed by Terraform under `terraform/environments/prod/`.
-
-**Terraform variables** (set in `terraform.tfvars`):
-
-| Variable | Description |
-|---|---|
-| `project` | Project name prefix — used for all resource names |
-| `bucket` | S3 bucket name for the lakehouse |
-| `alert_email` | Email address for SNS pipeline failure alerts |
-
-**Required GitHub Actions secrets / variables** (for CD):
-
-| Name | Type | Description |
-|---|---|---|
-| `AWS_ROLE_ARN` | Secret | IAM role ARN assumed via OIDC — no long-lived keys |
-| `AWS_REGION` | Variable | AWS region (e.g. `eu-west-1`) |
-| `TF_PROJECT` | Variable | Matches the `project` Terraform variable |
-| `LAKEHOUSE_BUCKET` | Variable | Matches the `bucket` Terraform variable |
-| `ALERT_EMAIL` | Secret | SNS alert email |
-
-**S3 zone layout**:
-
-```
+```text
 s3://<bucket>/
-├── raw/          # Landing zone — EventBridge watches ObjectCreated here
-│   ├── products/
-│   ├── orders/
-│   └── order_items/
-├── lakehouse/    # Delta tables (products, orders, order_items)
-├── quarantine/   # Rejected rows — 90-day lifecycle expiry
-├── archive/      # Processed source files — Glacier transition after 30 days
-├── athena/       # Athena query results
-└── scripts/      # Glue job scripts + utils.zip (uploaded by CD)
+├── raw/              # Landing zone
+├── lakehouse-dwh/    # Delta tables (products, orders, order_items)
+├── quarantine/       # Rejected rows (90-day lifecycle)
+├── archived/         # Processed source files (Glacier after 365 days)
+├── athena-results/   # Athena query output
+├── scripts/          # Glue scripts + utils.zip
+└── temp/             # Glue scratch
 ```
-
-## Pipeline Components
-
-### `ingest_delta.py` (Glue 5.0 PySpark)
-
-Single parametrised job that handles all three datasets.
-
-```
---dataset        products | orders | order_items
---source_bucket  S3 bucket name
---source_key     Full S3 object key of the file to ingest
-```
-
-Per-run steps:
-
-1. Read the source file (CSV or XLSX) into a Spark DataFrame using the dataset-specific StructType
-2. Split into `valid_df` / `rejected_df` via `validation.validate()`
-3. Write `rejected_df` to `s3://<bucket>/quarantine/<dataset>/` (Parquet)
-4. `MERGE` (upsert) `valid_df` into the Delta table keyed on the dataset primary key
-5. Run `OPTIMIZE` + `ZORDER` on the Delta table for query performance
-
-### `archive_files.py` (Glue 3.0 Python Shell)
-
-After all ingest jobs succeed, copies each processed raw file to `s3://<bucket>/archive/<dataset>/` and deletes the originals from `raw/`.
-
-### Step Functions ASL
-
-The state machine (`src/step_functions/state_machine.asl.json`) uses a **Parallel** state to run `products` and `orders` concurrently, then runs `order_items` sequentially after both branches complete. On any branch failure, a **Catch** handler publishes to SNS.
 
 ## Lakehouse Tables
 
-All tables are Delta format, registered in the Glue Data Catalog under the `ecommerce` database.
+Glue database: **`lakehouse_dwh`**
 
-| Table | Primary Key | Partition | Notes |
+| Table | Primary Key | Partition | Format |
 |---|---|---|---|
-| `products` | `product_id` | *(unpartitioned)* | ~1 K rows, full refresh via MERGE |
-| `orders` | `order_id` | `order_month` (YYYY-MM) | ~500 rows/month |
-| `order_items` | `order_item_id` | `order_month` (YYYY-MM) | ~2,768 rows/month |
-
-Delta MERGE semantics: matched rows are **updated**, unmatched rows are **inserted** — no duplicates on reruns.
-
-After each MERGE, `OPTIMIZE` compacts small files and `ZORDER BY (<pk>)` co-locates data for predicate-pushdown queries.
-
-## Validation & Quarantine
-
-Each dataset has a **StructType** schema defined in `src/utils/schemas.py`. The `validation.validate()` function returns:
-
-- `valid_df` — rows that pass all rules (non-null PKs, correct types, domain checks)
-- `rejected_df` — rows that fail any rule, written to the quarantine prefix with a `reason` column
-
-Quarantine files are Parquet with a 90-day S3 lifecycle expiry. No quarantine rows are ever merged into the Delta tables.
-
-## Glue Dependency Packaging
-
-`src/utils/` is packaged into `dist/utils.zip` and uploaded to `s3://<bucket>/scripts/utils.zip`. Every Glue job specifies `--extra-py-files s3://<bucket>/scripts/utils.zip` so the shared modules are available at runtime.
-
-```bash
-make build-utils-zip   # creates dist/utils.zip
-make verify-zip        # asserts utils/ root is present
-```
-
-The CD pipeline runs both steps automatically before any Terraform apply.
-
-## Athena Queries
-
-Sample partition-pruned queries are in `scripts/athena_queries.sql`.
-
-**Monthly order summary** — scans only the `orders/order_month=2025-04/` partition:
-
-```sql
-SELECT
-    order_month,
-    COUNT(DISTINCT order_id)  AS orders,
-    SUM(total_amount)         AS revenue
-FROM orders
-WHERE order_month = '2025-04'
-GROUP BY order_month;
-```
-
-**Top 10 products by frequency** — join locality pushes the partition filter to both `order_items` and `orders`:
-
-```sql
-SELECT
-    p.product_name,
-    COUNT(*) AS frequency
-FROM order_items  oi
-JOIN orders       o  ON  oi.order_id    = o.order_id
-                     AND oi.order_month = o.order_month
-JOIN products     p  ON  oi.product_id  = p.product_id
-WHERE oi.order_month = '2025-04'
-GROUP BY p.product_name
-ORDER BY frequency DESC
-LIMIT 10;
-```
-
-## Testing
-
-```bash
-make test      # All tests, ≥ 80 % coverage required
-make smoke     # Import smoke test only (fast)
-```
-
-**Test layout**:
-
-- `tests/unit/` — fast tests using `moto[all]` to mock AWS; no real AWS calls
-- `tests/integration/` — full job path tests against mocked S3 + a local `SparkSession` with `delta-spark`
-- `tests/conftest.py` — shared `SparkSession` and moto fixtures
-
-Coverage gate is enforced in both CI (`ci.yml`) and the CD deploy gate (`cd.yml`).
+| `products` | `product_id` | unpartitioned | Delta |
+| `orders` | `order_id` | `order_month` | Delta |
+| `order_items` | `id` | `order_month` | Delta |
 
 ## CI/CD
 
 | Workflow | Trigger | Actions |
 |---|---|---|
-| **CI** (`ci.yml`) | PR to `development` or `main` | Lint → type-check → test (≥ 80 % coverage) |
-| **CD** (`cd.yml`) | Push to `main` | Lint → test → Terraform apply → upload scripts → upload `utils.zip` |
+| **CI** | PR to `main` | Lint → unit + integration tests → Terraform validate |
+| **CD** | Push to `main` | Test gate → Terraform **plan** → manual approval on **`production` environment** → **apply** saved plan |
 
-CD authenticates to AWS using **OIDC** (`aws-actions/configure-aws-credentials@v4` with `role-to-assume`). No long-lived access keys are stored.
+The `deploy` job targets the GitHub **`production`** environment. Configure required reviewers on that environment in the repo settings so `terraform apply` only runs after manual approval.
 
-The `cd-prod` concurrency group prevents parallel deployments; in-progress deployments are never cancelled.
+Glue job scripts are deployed by Terraform from the repository on each apply. Only `utils.zip` is uploaded before plan.
 
-## Troubleshooting & Logging
+All AWS resources receive default tags via the provider: `Project`, `ManagedBy=terraform`, `Environment=production`.
+
+## Troubleshooting
 
 | Symptom | Where to look |
 |---|---|
-| Step Functions execution failed | AWS Console → Step Functions → execution history; or CloudWatch log group `/aws/states/<project>-pipeline` |
-| Glue job error | CloudWatch log group `/aws-glue/jobs/output` and `/aws-glue/jobs/error` |
-| Rejected rows appearing | `s3://<bucket>/quarantine/<dataset>/` — Parquet files include a `reason` column |
-| Athena query scans too much data | Ensure `WHERE order_month = 'YYYY-MM'` is present — without it Athena full-scans the table |
-| `utils.zip` missing root | Run `make verify-zip`; rebuild with `make build-utils-zip` if the assertion fails |
-| Terraform drift | Run `make tf-plan` to see what would change before applying |
-
-All Glue jobs use `src/utils/logger.py` which emits structured log lines to CloudWatch. Step Functions execution logs are forwarded to CloudWatch with `level: ALL`.
+| Pipeline not starting | CloudWatch `/aws/lambda/<project>-start-pipeline`; SQS queue depth |
+| Step Functions failed | Step Functions execution history; `/aws/states/<project>-pipeline` |
+| Glue job error | `/aws-glue/jobs/output` and `/aws-glue/jobs/error` |
+| Rejected rows | `s3://<bucket>/quarantine/<dataset>/` |
+| Athena scans too much | Add `WHERE order_month = 'YYYY-MM'` on partitioned tables |
 
 ## Contributing
 
-1. Branch from `development`: `git checkout -b feature/<id>-<description>`
-2. Follow conventional commits: `<type>(<scope>): <description>`
-3. Ensure `make lint`, `make typecheck`, and `make test` all pass before opening a PR
-4. Target PRs at `development`; only `development` → `main` triggers the CD deployment
-5. Never commit `.env`, `terraform.tfvars`, or any file containing credentials — these are excluded via `.gitignore` and `.git/info/exclude`
+1. Branch from `main`
+2. Ensure `make lint` and `make test` pass
+3. Open PRs targeting `main`
+4. Never commit `terraform.tfvars` or credentials

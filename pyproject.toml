@@ -24,7 +24,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["utils*", "glue_jobs*"]
+include = ["utils*", "glue_jobs*", "lambda_functions*"]
 
 [tool.ruff]
 target-version = "py311"
