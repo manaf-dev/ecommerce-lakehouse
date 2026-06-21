@@ -58,15 +58,16 @@ data "aws_iam_policy_document" "glue" {
     ]
   }
 
+  # Wildcards omit the trailing slash to also cover Hadoop _$folder$ directory markers.
   statement {
     sid     = "GlueS3ReadWriteDelete"
     actions = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
     resources = [
-      "arn:aws:s3:::${var.bucket}/lakehouse-dwh/*",
-      "arn:aws:s3:::${var.bucket}/quarantine/*",
-      "arn:aws:s3:::${var.bucket}/archived/*",
-      "arn:aws:s3:::${var.bucket}/raw/*",
-      "arn:aws:s3:::${var.bucket}/temp/*",
+      "arn:aws:s3:::${var.bucket}/lakehouse-dwh*",
+      "arn:aws:s3:::${var.bucket}/quarantine*",
+      "arn:aws:s3:::${var.bucket}/archived*",
+      "arn:aws:s3:::${var.bucket}/raw*",
+      "arn:aws:s3:::${var.bucket}/temp*",
     ]
   }
 

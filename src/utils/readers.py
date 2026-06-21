@@ -9,10 +9,33 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pandas as pd
+from pyspark.sql.types import DateType, DoubleType, FloatType, StructType, TimestampType
 
 if TYPE_CHECKING:
     from pyspark.sql import DataFrame, SparkSession  # pragma: no cover
-    from pyspark.sql.types import StructType  # pragma: no cover
+
+
+def _coerce_pandas_types(df: pd.DataFrame, schema: StructType) -> pd.DataFrame:
+    """Coerce pandas column dtypes to match the Spark schema before createDataFrame.
+
+    Spark 3.5 enforces schema types strictly at createDataFrame time:
+    - ISO-8601 strings are rejected for TimestampType/DateType
+    - int64 is rejected for DoubleType/FloatType
+    pandas reads XLSX data with whatever dtype fits the raw cell values, so
+    whole-number float columns arrive as int64 and timestamp strings as object.
+    """
+    for field in schema.fields:
+        if field.name not in df.columns:
+            continue
+        if isinstance(field.dataType, TimestampType):
+            df[field.name] = pd.to_datetime(df[field.name], errors="coerce")
+        elif isinstance(field.dataType, DateType):
+            df[field.name] = pd.to_datetime(df[field.name], errors="coerce").dt.date
+        elif isinstance(field.dataType, (DoubleType, FloatType)):
+            # pd.to_numeric alone returns int64 for whole-number columns;
+            # force float64 so Spark DoubleType accepts the values.
+            df[field.name] = pd.to_numeric(df[field.name], errors="coerce").astype("float64")
+    return df
 
 
 def read_csv_to_spark(
@@ -64,6 +87,11 @@ def read_xlsx_to_spark(
     # Replace pandas NaN with Python None so Spark maps them to null correctly.
     # Without this, NaN in integer columns raises a type-cast error.
     combined = combined.where(pd.notna(combined), other=None)
+    combined = _coerce_pandas_types(combined, schema)
+    # createDataFrame with StructType maps by position, not name.
+    # Reorder pandas columns to match schema field order before conversion.
+    col_order = [f.name for f in schema.fields]
+    combined = combined[col_order]
     return spark.createDataFrame(combined, schema=schema)
 
 

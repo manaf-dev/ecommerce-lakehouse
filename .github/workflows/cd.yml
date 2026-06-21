@@ -130,3 +130,48 @@ jobs:
 
       - name: Terraform apply
         run: terraform -chdir=terraform/main apply -input=false tfplan
+
+      - name: Deploy Athena views
+        run: |
+          WORKGROUP="${{ vars.TF_PROJECT }}-workgroup"
+          RESULTS="s3://${{ vars.LAKEHOUSE_BUCKET }}/athena-results/"
+          REGION="${{ vars.AWS_REGION }}"
+
+          for sql_file in sql/views/*.sql; do
+            view_name=$(basename "$sql_file" .sql)
+            echo "Creating view: $view_name"
+
+            EXEC_ID=$(aws athena start-query-execution \
+              --query-string "$(cat "$sql_file")" \
+              --work-group "$WORKGROUP" \
+              --query-execution-context Database=lakehouse_dwh \
+              --result-configuration OutputLocation="$RESULTS" \
+              --region "$REGION" \
+              --query QueryExecutionId --output text)
+
+            echo "  Query ID: $EXEC_ID"
+
+            for i in $(seq 1 12); do
+              sleep 5
+              STATE=$(aws athena get-query-execution \
+                --query-execution-id "$EXEC_ID" \
+                --region "$REGION" \
+                --query 'QueryExecution.Status.State' --output text)
+              echo "  State: $STATE"
+              if [ "$STATE" = "SUCCEEDED" ]; then break; fi
+              if [ "$STATE" = "FAILED" ] || [ "$STATE" = "CANCELLED" ]; then
+                REASON=$(aws athena get-query-execution \
+                  --query-execution-id "$EXEC_ID" \
+                  --region "$REGION" \
+                  --query 'QueryExecution.Status.StateChangeReason' --output text)
+                echo "  Error: $REASON"
+                exit 1
+              fi
+            done
+
+            if [ "$STATE" != "SUCCEEDED" ]; then
+              echo "  Timed out waiting for $view_name"
+              exit 1
+            fi
+          done
+          echo "All Athena views deployed successfully."

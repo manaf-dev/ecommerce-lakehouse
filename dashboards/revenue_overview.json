@@ -1,0 +1,340 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_ATHENA",
+      "label": "Athena",
+      "description": "Amazon Athena datasource configured in Grafana Cloud",
+      "type": "datasource",
+      "pluginId": "grafana-athena-datasource",
+      "pluginName": "Amazon Athena"
+    }
+  ],
+  "__elements": {},
+  "__requires": [
+    { "type": "grafana",    "id": "grafana",                       "name": "Grafana",         "version": "10.0.0" },
+    { "type": "datasource", "id": "grafana-athena-datasource",     "name": "Amazon Athena",   "version": "2.0.0"  },
+    { "type": "panel",      "id": "stat",                          "name": "Stat",            "version": ""       },
+    { "type": "panel",      "id": "timeseries",                    "name": "Time series",     "version": ""       },
+    { "type": "panel",      "id": "barchart",                      "name": "Bar chart",       "version": ""       }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Monthly revenue, order volume, and customer KPIs for the e-commerce lakehouse.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": false,
+      "tags": ["ecommerce"],
+      "targetBlank": true,
+      "title": "Product Performance",
+      "tooltip": "",
+      "type": "dashboards",
+      "url": ""
+    }
+  ],
+  "panels": [
+
+    {
+      "datasource": { "type": "grafana-athena-datasource", "uid": "${DS_ATHENA}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 2,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "none"
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "connectionArgs": { "catalog": "AwsDataCatalog", "database": "lakehouse_dwh", "region": "default" },
+          "format": 1,
+          "rawSQL": "SELECT ROUND(SUM(total_revenue), 2) AS \"Total Revenue\" FROM revenue_by_month",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Revenue",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "grafana-athena-datasource", "uid": "${DS_ATHENA}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "connectionArgs": { "catalog": "AwsDataCatalog", "database": "lakehouse_dwh", "region": "default" },
+          "format": 1,
+          "rawSQL": "SELECT SUM(order_count) AS \"Total Orders\" FROM revenue_by_month",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Orders",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "grafana-athena-datasource", "uid": "${DS_ATHENA}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 2,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] }
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "connectionArgs": { "catalog": "AwsDataCatalog", "database": "lakehouse_dwh", "region": "default" },
+          "format": 1,
+          "rawSQL": "SELECT ROUND(SUM(total_revenue) / NULLIF(SUM(order_count), 0), 2) AS \"Avg Order Value\" FROM revenue_by_month",
+          "refId": "A"
+        }
+      ],
+      "title": "Avg Order Value",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "grafana-athena-datasource", "uid": "${DS_ATHENA}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "orange", "value": null }] }
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "connectionArgs": { "catalog": "AwsDataCatalog", "database": "lakehouse_dwh", "region": "default" },
+          "format": 1,
+          "rawSQL": "SELECT COUNT(DISTINCT user_id) AS \"Unique Customers\" FROM orders",
+          "refId": "A"
+        }
+      ],
+      "title": "Unique Customers",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "grafana-athena-datasource", "uid": "${DS_ATHENA}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 6,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          }
+        }
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
+      "id": 5,
+      "options": {
+        "legend": { "calcs": ["sum", "mean"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "connectionArgs": { "catalog": "AwsDataCatalog", "database": "lakehouse_dwh", "region": "default" },
+          "format": 0,
+          "rawSQL": "SELECT DATE_PARSE(order_month || '-01', '%Y-%m-%d') AS time, ROUND(total_revenue, 2) AS \"Revenue\" FROM revenue_by_month ORDER BY order_month",
+          "refId": "A"
+        },
+        {
+          "connectionArgs": { "catalog": "AwsDataCatalog", "database": "lakehouse_dwh", "region": "default" },
+          "format": 0,
+          "rawSQL": "SELECT DATE_PARSE(order_month || '-01', '%Y-%m-%d') AS time, CAST(order_count AS DOUBLE) AS \"Orders\" FROM revenue_by_month ORDER BY order_month",
+          "refId": "B",
+          "hide": false
+        }
+      ],
+      "title": "Revenue & Orders Over Time",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "grafana-athena-datasource", "uid": "${DS_ATHENA}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 80, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "lineWidth": 1 }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "id": 6,
+      "options": {
+        "barRadius": 0.05,
+        "barWidth": 0.7,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "orientation": "auto",
+        "stacking": "none",
+        "tooltip": { "mode": "single", "sort": "none" },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "targets": [
+        {
+          "connectionArgs": { "catalog": "AwsDataCatalog", "database": "lakehouse_dwh", "region": "default" },
+          "format": 1,
+          "rawSQL": "SELECT order_month AS \"Month\", ROUND(total_revenue, 2) AS \"Revenue\" FROM revenue_by_month ORDER BY order_month",
+          "refId": "A"
+        }
+      ],
+      "title": "Monthly Revenue",
+      "type": "barchart"
+    },
+
+    {
+      "datasource": { "type": "grafana-athena-datasource", "uid": "${DS_ATHENA}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 80, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "lineWidth": 1 }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "id": 7,
+      "options": {
+        "barRadius": 0.05,
+        "barWidth": 0.7,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "orientation": "auto",
+        "stacking": "none",
+        "tooltip": { "mode": "single", "sort": "none" },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "targets": [
+        {
+          "connectionArgs": { "catalog": "AwsDataCatalog", "database": "lakehouse_dwh", "region": "default" },
+          "format": 1,
+          "rawSQL": "SELECT order_month AS \"Month\", order_count AS \"Orders\", unique_customers AS \"Customers\" FROM revenue_by_month ORDER BY order_month",
+          "refId": "A"
+        }
+      ],
+      "title": "Monthly Orders & Customers",
+      "type": "barchart"
+    },
+
+    {
+      "datasource": { "type": "grafana-athena-datasource", "uid": "${DS_ATHENA}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always"
+          }
+        }
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
+      "id": 8,
+      "options": {
+        "legend": { "calcs": ["mean", "max", "min"], "displayMode": "table", "placement": "right", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "targets": [
+        {
+          "connectionArgs": { "catalog": "AwsDataCatalog", "database": "lakehouse_dwh", "region": "default" },
+          "format": 0,
+          "rawSQL": "SELECT CAST(order_date AS TIMESTAMP) AS time, ROUND(daily_revenue, 2) AS \"Daily Revenue\", CAST(order_count AS DOUBLE) AS \"Order Count\", ROUND(avg_order_value, 2) AS \"Avg Order Value\" FROM orders_daily ORDER BY order_date",
+          "refId": "A"
+        }
+      ],
+      "title": "Daily Orders Detail",
+      "type": "timeseries"
+    }
+
+  ],
+  "refresh": "",
+  "schemaVersion": 38,
+  "tags": ["ecommerce", "lakehouse", "revenue"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1y", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "E-Commerce Revenue Overview",
+  "uid": "ecommerce-revenue-overview",
+  "version": 1,
+  "weekStart": ""
+}

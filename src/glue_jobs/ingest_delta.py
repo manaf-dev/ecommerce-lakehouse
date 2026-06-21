@@ -125,8 +125,13 @@ def run_ingest(spark: object, args: dict) -> dict:
     elif dataset == "orders":
         valid_df, rejected_df = validate_orders(df)
     else:  # order_items
-        orders_path = args.get("orders_path", "")
-        products_path = args.get("products_path", "")
+        orders_path = args.get("orders_path") or ""
+        products_path = args.get("products_path") or ""
+        if not orders_path or not products_path:
+            raise ValueError(
+                f"order_items requires --orders_path and --products_path; "
+                f"got orders_path={orders_path!r}, products_path={products_path!r}"
+            )
         orders_delta = spark.read.format("delta").load(orders_path)  # type: ignore[attr-defined]
         products_delta = spark.read.format("delta").load(products_path)  # type: ignore[attr-defined]
         valid_df, rejected_df = validate_order_items(df, orders_delta, products_delta)
@@ -204,7 +209,7 @@ def main() -> None:
         job = Job(glue_ctx)
         job.init(params["JOB_NAME"], params)
 
-        if "--products_path" in sys.argv:
+        if params.get("dataset") == "order_items":
             extras = getResolvedOptions(sys.argv, ["products_path", "orders_path"])
             params.update(extras)
 

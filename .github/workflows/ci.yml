@@ -25,8 +25,11 @@ jobs:
           ruff check src/ tests/
           ruff format --check src/ tests/
 
-      - name: Test
-        run: pytest tests/ -v --cov=src --cov-fail-under=80
+      - name: Unit tests (≥80 % coverage gate)
+        run: pytest tests/unit/ -v --cov=src --cov-fail-under=80
+
+      - name: Integration tests (moto-mocked, no real AWS)
+        run: pytest tests/integration/ -v --no-cov
 
   terraform-validate:
     runs-on: ubuntu-latest
