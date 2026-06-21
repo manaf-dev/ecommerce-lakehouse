@@ -223,24 +223,21 @@
       "Resource": "arn:aws:athena:AWS_REGION:ACCOUNT_ID:workgroup/PROJECT-*"
     },
     {
-      "Sid": "CloudWatchLogs",
+      "Sid": "CloudWatchLogsDescribe",
       "Effect": "Allow",
       "Action": [
-        "logs:CreateLogGroup",
-        "logs:DeleteLogGroup",
         "logs:DescribeLogGroups",
-        "logs:PutRetentionPolicy",
-        "logs:DeleteRetentionPolicy",
-        "logs:ListTagsForResource",
-        "logs:TagResource",
-        "logs:UntagResource",
-        "logs:CreateLogDelivery",
-        "logs:DeleteLogDelivery",
         "logs:DescribeLogDeliveries",
-        "logs:UpdateLogDelivery",
-        "logs:PutResourcePolicy",
-        "logs:DescribeResourcePolicies"
+        "logs:DescribeResourcePolicies",
+        "logs:DescribeLogStreams",
+        "logs:ListLogStreams"
       ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogsManage",
+      "Effect": "Allow",
+      "Action": "logs:*",
       "Resource": [
         "arn:aws:logs:AWS_REGION:ACCOUNT_ID:log-group:/aws/lambda/PROJECT-*",
         "arn:aws:logs:AWS_REGION:ACCOUNT_ID:log-group:/aws/lambda/PROJECT-*:*",
