@@ -146,10 +146,15 @@
         "states:ListStateMachines",
         "states:ListTagsForResource",
         "states:TagResource",
-        "states:UntagResource",
-        "states:ValidateStateMachineDefinition"
+        "states:UntagResource"
       ],
       "Resource": "arn:aws:states:AWS_REGION:ACCOUNT_ID:stateMachine:PROJECT-*"
+    },
+    {
+      "Sid": "StepFunctionsValidate",
+      "Effect": "Allow",
+      "Action": "states:ValidateStateMachineDefinition",
+      "Resource": "*"
     },
     {
       "Sid": "EventBridge",
