@@ -164,17 +164,17 @@ To update an existing role, use `aws iam update-assume-role-policy` and `aws iam
 
 | Name | Type | Value |
 |---|---|---|
-| `AWS_ROLE_ARN` | Secret | `arn:aws:iam::<account>:role/ecommerce-lakehouse-github-actions` |
-| `AWS_REGION` | Variable | e.g. `eu-central-1` |
-| `TF_STATE_BUCKET` | Variable | `ecommerce-lakehouse-tfstate` |
-| `TF_PROJECT` | Variable | `ecommerce-lakehouse` |
-| `LAKEHOUSE_BUCKET` | Variable | Your lakehouse bucket name |
+| `AWS_ROLE_ARN` | Secret | `arn:aws:iam::<ACCOUNT_ID>:role/PROJECT-github-actions` |
 | `ALERT_EMAIL` | Secret | SNS alert email |
+| `AWS_REGION` | Variable | e.g. `eu-central-1` |
+| `TF_STATE_BUCKET` | Variable | `PROJECT-tfstate` |
+| `TF_PROJECT` | Variable | `PROJECT` |
+| `LAKEHOUSE_BUCKET` | Variable | Your lakehouse bucket name |
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/<org>/ecommerce-lakehouse.git
+git clone https://github.com/manaf-dev/ecommerce-lakehouse.git
 cd ecommerce-lakehouse
 make install
 
@@ -262,9 +262,3 @@ All AWS resources receive default tags via the provider: `Project`, `ManagedBy=t
 | Rejected rows | `s3://<bucket>/quarantine/<dataset>/` |
 | Athena scans too much | Add `WHERE order_month = 'YYYY-MM'` on partitioned tables |
 
-## Contributing
-
-1. Branch from `main`
-2. Ensure `make lint` and `make test` pass
-3. Open PRs targeting `main`
-4. Never commit `terraform.tfvars` or credentials
