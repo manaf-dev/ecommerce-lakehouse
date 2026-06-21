@@ -164,7 +164,7 @@ To update an existing role, use `aws iam update-assume-role-policy` and `aws iam
 
 Configure secrets and variables on the GitHub **`production`** environment (Settings → Environments → **production**). The CD `deploy` job reads all config from there.
 
-After changing `LAKEHOUSE_BUCKET` or `TF_STATE_BUCKET`, re-apply the deploy IAM policy (`scripts/github-actions-deploy-policy.json`) so `s3:CreateBucket` matches the new names.
+After changing `LAKEHOUSE_BUCKET` or `TF_STATE_BUCKET`, re-apply the deploy IAM policy (`scripts/github-actions-deploy-policy.json`) so `s3:CreateBucket` and `s3:*` bucket ARNs match the new names.
 
 | Name | Type | Where | Value |
 |---|---|---|---|
@@ -260,7 +260,7 @@ All AWS resources receive default tags via the provider: `Project`, `ManagedBy=t
 
 | Symptom | Where to look |
 |---|---|
-| CD `terraform plan` AccessDenied on `s3:GetBucket*` | Re-run `put-role-policy` — bucket config actions use `s3:GetBucket*` / `s3:PutBucket*` wildcards scoped to your bucket ARNs |
+| CD `terraform plan` AccessDenied on S3 | Re-run `put-role-policy` — deploy role needs `s3:*` on lakehouse + tfstate bucket ARNs (Terraform reads many bucket APIs during plan) |
 | CD `terraform apply` 403 on tfstate bucket | `TF_STATE_BUCKET` in IAM policy does not match the GitHub `production` environment value |
 | Pipeline not starting | CloudWatch `/aws/lambda/<project>-start-pipeline`; SQS queue depth |
 | Step Functions failed | Step Functions execution history; `/aws/states/<project>-pipeline` |
