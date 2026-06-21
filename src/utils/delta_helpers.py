@@ -1,8 +1,4 @@
-"""Delta Lake MERGE + OPTIMIZE helpers.
-
-merge_to_delta   — upsert a source DataFrame into a Delta table on a PK.
-optimize_and_zorder — compact and Z-order a Delta table after MERGE.
-"""
+"""Delta Lake MERGE + OPTIMIZE helpers."""
 
 from __future__ import annotations
 
@@ -19,20 +15,7 @@ def merge_to_delta(
     pk: str,
     partition_by: str | None = None,
 ) -> None:
-    """MERGE source_df into the Delta table at target_path on pk.
-
-    If the Delta table does not yet exist at target_path, it is created with
-    an initial write (partitioned by partition_by if given).  Subsequent calls
-    perform a whenMatchedUpdateAll / whenNotMatchedInsertAll MERGE, which is
-    idempotent for the same source batch.
-
-    Args:
-        spark: Active SparkSession with Delta extensions configured.
-        source_df: DataFrame to merge in.
-        target_path: Absolute S3 or local path to the Delta table.
-        pk: Primary key column name used as the merge predicate.
-        partition_by: Optional column to partition the Delta table by.
-    """
+    """MERGE source_df into the Delta table at target_path on pk (+ partition when set)."""
     from delta.tables import DeltaTable  # noqa: PLC0415
 
     if not DeltaTable.isDeltaTable(spark, target_path):
@@ -42,13 +25,33 @@ def merge_to_delta(
         writer.save(target_path)
         return
 
+    merge_predicate = f"t.{pk} = s.{pk}"
+    if partition_by:
+        merge_predicate = f"{merge_predicate} AND t.{partition_by} = s.{partition_by}"
+
     (
         DeltaTable.forPath(spark, target_path)
         .alias("t")
-        .merge(source_df.alias("s"), f"t.{pk} = s.{pk}")
+        .merge(source_df.alias("s"), merge_predicate)
         .whenMatchedUpdateAll()
         .whenNotMatchedInsertAll()
         .execute()
+    )
+
+
+def register_delta_table(
+    spark: SparkSession,
+    target_path: str,
+    catalog_db: str,
+    table_name: str,
+) -> None:
+    """Register (or refresh) a Delta table in the Glue Data Catalog."""
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {catalog_db}.{table_name}
+        USING DELTA
+        LOCATION '{target_path}'
+        """
     )
 
 
@@ -57,15 +60,7 @@ def optimize_and_zorder(
     target_path: str,
     zorder_cols: list[str],
 ) -> None:
-    """Run OPTIMIZE + ZORDER on a Delta table.
-
-    Skips silently when zorder_cols is empty (e.g. products table).
-
-    Args:
-        spark: Active SparkSession with Delta extensions configured.
-        target_path: Absolute S3 or local path to the Delta table.
-        zorder_cols: Columns to Z-order by.  Empty list → no-op.
-    """
+    """Run OPTIMIZE + ZORDER on a Delta table when columns are configured."""
     if not zorder_cols:
         return
     from delta.tables import DeltaTable  # noqa: PLC0415
