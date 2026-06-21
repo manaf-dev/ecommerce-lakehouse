@@ -34,8 +34,8 @@ jobs:
       - name: Tests (unit + integration, ≥80 % coverage)
         run: pytest tests/ -v --cov=src --cov-fail-under=80
 
-  plan:
-    name: Terraform plan
+  deploy:
+    name: Deploy to production
     runs-on: ubuntu-latest
     needs: test
     environment: production
@@ -75,15 +75,8 @@ jobs:
           if aws s3api head-bucket --bucket "${{ vars.LAKEHOUSE_BUCKET }}" 2>/dev/null; then
             aws s3 cp dist/utils.zip "s3://${{ vars.LAKEHOUSE_BUCKET }}/scripts/utils.zip"
           else
-            echo "Lakehouse bucket not found — skipping pre-plan upload (first apply creates the bucket)."
+            echo "Lakehouse bucket not found — skipping pre-apply upload (apply creates the bucket)."
           fi
-
-      - name: Upload utils.zip artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: utils-zip
-          path: dist/utils.zip
-          if-no-files-found: error
 
       - name: Terraform init
         run: >-
@@ -98,52 +91,6 @@ jobs:
           -var="bucket=${{ vars.LAKEHOUSE_BUCKET }}"
           -var="region=${{ vars.AWS_REGION }}"
           -var="alert_email=${{ secrets.ALERT_EMAIL }}"
-
-      - name: Upload plan artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan
-          path: terraform/main/tfplan
-          if-no-files-found: error
-
-  deploy:
-    name: Deploy to production
-    runs-on: ubuntu-latest
-    needs: plan
-    environment: production
-
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: hashicorp/setup-terraform@v3
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Download plan artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan
-          path: terraform/main
-
-      - name: Download utils.zip artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: utils-zip
-          path: dist
-
-      - name: Terraform init
-        run: >-
-          terraform -chdir=terraform/main init -input=false
-          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
-          -backend-config="region=${{ vars.AWS_REGION }}"
 
       - name: Terraform apply
         run: terraform -chdir=terraform/main apply -input=false tfplan

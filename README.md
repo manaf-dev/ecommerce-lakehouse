@@ -162,7 +162,9 @@ To update an existing role, use `aws iam update-assume-role-policy` and `aws iam
 
 ### 4. GitHub repository configuration
 
-Configure secrets and variables on the GitHub **`production`** environment (Settings → Environments → **production**). Both CD `plan` and `deploy` jobs use that environment, so `TF_STATE_BUCKET`, `LAKEHOUSE_BUCKET`, `TF_PROJECT`, and `AWS_REGION` must be set there.
+Configure secrets and variables on the GitHub **`production`** environment (Settings → Environments → **production**). The CD `deploy` job reads all config from there.
+
+After changing `LAKEHOUSE_BUCKET` or `TF_STATE_BUCKET`, re-apply the deploy IAM policy (`scripts/github-actions-deploy-policy.json`) so `s3:CreateBucket` matches the new names.
 
 | Name | Type | Where | Value |
 |---|---|---|---|
@@ -246,11 +248,11 @@ Glue database: **`lakehouse_dwh`**
 | Workflow | Trigger | Actions |
 |---|---|---|
 | **CI** | PR to `main` | Lint → unit + integration tests → Terraform validate |
-| **CD** | Push to `main` | Test gate → manual approval on **`production`** → Terraform **plan** → **apply** saved plan |
+| **CD** | Push to `main` | Test gate → manual approval on **`production`** → Terraform **plan** + **apply** |
 
-Both `plan` and `deploy` use the GitHub **`production`** environment for secrets/variables. Configure required reviewers on that environment so `terraform plan` only runs after manual approval; `deploy` reuses the same approval for the workflow run.
+The `deploy` job uses the GitHub **`production`** environment for secrets/variables and a single manual approval gate before plan and apply run together.
 
-Glue job scripts are deployed by Terraform from the repository on each apply. `utils.zip` is uploaded after apply (skipped pre-plan on first deploy when the lakehouse bucket does not exist yet).
+Glue job scripts are deployed by Terraform from the repository on each apply. `utils.zip` is uploaded after apply (skipped pre-apply on first deploy when the lakehouse bucket does not exist yet).
 
 All AWS resources receive default tags via the provider: `Project`, `ManagedBy=terraform`, `Environment=production`.
 
@@ -258,7 +260,8 @@ All AWS resources receive default tags via the provider: `Project`, `ManagedBy=t
 
 | Symptom | Where to look |
 |---|---|
-| CD `terraform apply` 403 on tfstate bucket | `plan` and `deploy` used different backends — ensure both jobs use `production` environment variables for `TF_STATE_BUCKET` |
+| CD `terraform apply` AccessDenied on `s3:CreateBucket` | Re-run `put-role-policy` with `scripts/github-actions-deploy-policy.json` — `CreateBucket` requires `Resource: *` with `s3:BucketName` condition |
+| CD `terraform apply` 403 on tfstate bucket | `TF_STATE_BUCKET` in IAM policy does not match the GitHub `production` environment value |
 | Pipeline not starting | CloudWatch `/aws/lambda/<project>-start-pipeline`; SQS queue depth |
 | Step Functions failed | Step Functions execution history; `/aws/states/<project>-pipeline` |
 | Glue job error | `/aws-glue/jobs/output` and `/aws-glue/jobs/error` |

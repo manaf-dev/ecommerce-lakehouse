@@ -2,10 +2,20 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "S3CreateBucket",
+      "Effect": "Allow",
+      "Action": "s3:CreateBucket",
+      "Resource": "*",
+      "Condition": {
+        "StringLike": {
+          "s3:BucketName": ["LAKEHOUSE_BUCKET", "TF_STATE_BUCKET"]
+        }
+      }
+    },
+    {
       "Sid": "S3LakehouseAndState",
       "Effect": "Allow",
       "Action": [
-        "s3:CreateBucket",
         "s3:DeleteBucket",
         "s3:ListBucket",
         "s3:GetBucketLocation",
