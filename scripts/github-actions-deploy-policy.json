@@ -137,6 +137,18 @@
       "Resource": "arn:aws:lambda:AWS_REGION:ACCOUNT_ID:function:PROJECT-*"
     },
     {
+      "Sid": "LambdaEventSourceMappings",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateEventSourceMapping",
+        "lambda:DeleteEventSourceMapping",
+        "lambda:GetEventSourceMapping",
+        "lambda:UpdateEventSourceMapping",
+        "lambda:ListEventSourceMappings"
+      ],
+      "Resource": "arn:aws:lambda:AWS_REGION:ACCOUNT_ID:event-source-mapping:*"
+    },
+    {
       "Sid": "StepFunctions",
       "Effect": "Allow",
       "Action": [
