@@ -11,10 +11,12 @@ resource "aws_s3_object" "ingest_delta_script" {
 }
 
 locals {
-  delta_spark_conf = join(" ", [
-    "--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension",
-    "--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog",
-    "--conf spark.delta.logStore.class=org.apache.spark.sql.delta.storage.S3SingleDriverLogStore",
+  # Glue multi-conf format: first entry has no "--conf" prefix; subsequent
+  # entries use " --conf " separator. The outer "--conf" key is added by Glue.
+  delta_spark_conf = join(" --conf ", [
+    "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension",
+    "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog",
+    "spark.delta.logStore.class=org.apache.spark.sql.delta.storage.S3SingleDriverLogStore",
   ])
 }
 

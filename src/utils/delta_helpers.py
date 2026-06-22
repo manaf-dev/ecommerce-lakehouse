@@ -46,6 +46,10 @@ def register_delta_table(
     table_name: str,
 ) -> None:
     """Register (or refresh) a Delta table in the Glue Data Catalog."""
+    # DeltaCatalog (set by --datalake-formats=delta) does not auto-discover
+    # existing Glue catalog databases via namespaceExists; ensure the schema
+    # is present in the active catalog session before issuing CREATE TABLE.
+    spark.sql(f"CREATE DATABASE IF NOT EXISTS {catalog_db}")
     spark.sql(
         f"""
         CREATE TABLE IF NOT EXISTS {catalog_db}.{table_name}
