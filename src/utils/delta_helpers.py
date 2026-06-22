@@ -77,6 +77,7 @@ def register_delta_table(
         "Parameters": {
             "table_type": "DELTA",
             "spark.sql.sources.provider": "delta",
+            "path": target_path,
         },
         "StorageDescriptor": {
             "Columns": [{"Name": f.name, "Type": _glue_type(f.dataType)} for f in schema.fields],
