@@ -45,18 +45,60 @@ def register_delta_table(
     catalog_db: str,
     table_name: str,
 ) -> None:
-    """Register (or refresh) a Delta table in the Glue Data Catalog."""
-    # DeltaCatalog (set by --datalake-formats=delta) does not auto-discover
-    # existing Glue catalog databases via namespaceExists; ensure the schema
-    # is present in the active catalog session before issuing CREATE TABLE.
-    spark.sql(f"CREATE DATABASE IF NOT EXISTS {catalog_db}")
-    spark.sql(
-        f"""
-        CREATE TABLE IF NOT EXISTS {catalog_db}.{table_name}
-        USING DELTA
-        LOCATION '{target_path}'
-        """
-    )
+    """Register (or refresh) a Delta table in the Glue Data Catalog via the Glue API.
+
+    DeltaCatalog (activated by --datalake-formats=delta) delegates catalog
+    writes to an in-memory Derby metastore, not the Glue Data Catalog.
+    Calling the Glue API directly ensures Athena can discover the table.
+    """
+    import boto3  # noqa: PLC0415
+    from botocore.exceptions import ClientError  # noqa: PLC0415
+    from pyspark.sql import types as T  # noqa: PLC0415
+
+    schema = spark.read.format("delta").load(target_path).schema
+
+    def _glue_type(dt: object) -> str:
+        if isinstance(dt, T.DecimalType):
+            return f"decimal({dt.precision},{dt.scale})"
+        return {
+            T.StringType: "string",
+            T.IntegerType: "int",
+            T.LongType: "bigint",
+            T.DoubleType: "double",
+            T.FloatType: "float",
+            T.BooleanType: "boolean",
+            T.DateType: "date",
+            T.TimestampType: "timestamp",
+        }.get(type(dt), "string")
+
+    table_input = {
+        "Name": table_name,
+        "TableType": "EXTERNAL_TABLE",
+        "Parameters": {
+            "table_type": "DELTA",
+            "spark.sql.sources.provider": "delta",
+        },
+        "StorageDescriptor": {
+            "Columns": [{"Name": f.name, "Type": _glue_type(f.dataType)} for f in schema.fields],
+            "Location": target_path,
+            "InputFormat": "org.apache.hadoop.mapred.SequenceFileInputFormat",
+            "OutputFormat": "org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat",
+            "SerdeInfo": {
+                "SerializationLibrary": "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe",
+            },
+            "Compressed": False,
+            "NumberOfBuckets": -1,
+        },
+    }
+
+    glue = boto3.client("glue")
+    try:
+        glue.create_table(DatabaseName=catalog_db, TableInput=table_input)
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "AlreadyExistsException":
+            glue.update_table(DatabaseName=catalog_db, TableInput=table_input)
+        else:
+            raise
 
 
 def optimize_and_zorder(

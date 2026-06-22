@@ -126,7 +126,7 @@
       "Comment": "Single smoke query — all three tables must have rows.",
       "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
       "Parameters": {
-        "QueryString.$": "States.Format('SELECT (SELECT COUNT(*) FROM products) + (SELECT COUNT(*) FROM orders WHERE order_month = \\'{}\\') + (SELECT COUNT(*) FROM order_items WHERE order_month = \\'{}\\') AS total_rows', $.order_month, $.order_month)",
+        "QueryString": "SELECT (SELECT COUNT(*) FROM products) + (SELECT COUNT(*) FROM orders) + (SELECT COUNT(*) FROM order_items) AS total_rows",
         "WorkGroup": "${workgroup_name}",
         "QueryExecutionContext": {
           "Database": "${catalog_db_name}"
