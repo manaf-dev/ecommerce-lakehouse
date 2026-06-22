@@ -117,6 +117,7 @@
           "ResultPath": "$.Error"
         }
       ],
+      "ResultPath": "$.IngestOrderItemsResult",
       "Next": "RunAthenaValidation"
     },
 
