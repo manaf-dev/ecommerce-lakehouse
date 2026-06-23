@@ -56,11 +56,18 @@ def register_delta_table(
     from botocore.exceptions import ClientError  # noqa: PLC0415
     from pyspark.sql import types as T  # noqa: PLC0415
 
-    schema = spark.read.format("delta").load(target_path).schema
+    from delta.tables import DeltaTable  # noqa: PLC0415
 
-    def _glue_type(dt: object) -> str:
-        if isinstance(dt, T.DecimalType):
-            return f"decimal({dt.precision},{dt.scale})"
+    dt = DeltaTable.forPath(spark, target_path)
+    history_row = dt.history(1).select("version", "timestamp").collect()[0]
+    delta_version = str(history_row["version"])
+    delta_ts_ms = str(int(history_row["timestamp"].timestamp() * 1000))
+
+    schema = dt.toDF().schema
+
+    def _glue_type(dt_: object) -> str:
+        if isinstance(dt_, T.DecimalType):
+            return f"decimal({dt_.precision},{dt_.scale})"
         return {
             T.StringType: "string",
             T.IntegerType: "int",
@@ -70,7 +77,7 @@ def register_delta_table(
             T.BooleanType: "boolean",
             T.DateType: "date",
             T.TimestampType: "timestamp",
-        }.get(type(dt), "string")
+        }.get(type(dt_), "string")
 
     table_input = {
         "Name": table_name,
@@ -82,9 +89,11 @@ def register_delta_table(
             "spark.sql.sources.schema.numParts": "1",
             "spark.sql.sources.schema.part.0": schema.json(),
             "spark.sql.partitionProvider": "catalog",
+            "delta.lastUpdateVersion": delta_version,
+            "delta.lastCommitTimestamp": delta_ts_ms,
         },
         "StorageDescriptor": {
-            "Columns": [{"Name": f.name, "Type": _glue_type(f.dataType)} for f in schema.fields],
+            "Columns": [{"Name": f.name, "Type": _glue_type(f.dataType)} for f in schema.fields],  # type: ignore[arg-type]
             "Location": target_path,
             "InputFormat": "org.apache.hadoop.mapred.SequenceFileInputFormat",
             "OutputFormat": "org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat",
