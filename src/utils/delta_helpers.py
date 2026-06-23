@@ -47,9 +47,10 @@ def register_delta_table(
 ) -> None:
     """Register (or refresh) a Delta table in the Glue Data Catalog via the Glue API.
 
-    DeltaCatalog (activated by --datalake-formats=delta) delegates catalog
-    writes to an in-memory Derby metastore, not the Glue Data Catalog.
-    Calling the Glue API directly ensures Athena can discover the table.
+    Uses the same table format that Athena DDL produces for Delta tables:
+    - table_type = "delta" (lowercase — uppercase breaks Athena's Delta reader)
+    - spark.sql.sources.schema.part.0 = full Spark schema JSON
+    - No 'path' parameter (Athena uses StorageDescriptor.Location)
     """
     import boto3  # noqa: PLC0415
     from botocore.exceptions import ClientError  # noqa: PLC0415
@@ -75,9 +76,12 @@ def register_delta_table(
         "Name": table_name,
         "TableType": "EXTERNAL_TABLE",
         "Parameters": {
-            "table_type": "DELTA",
+            "EXTERNAL": "TRUE",
+            "table_type": "delta",
             "spark.sql.sources.provider": "delta",
-            "path": target_path,
+            "spark.sql.sources.schema.numParts": "1",
+            "spark.sql.sources.schema.part.0": schema.json(),
+            "spark.sql.partitionProvider": "catalog",
         },
         "StorageDescriptor": {
             "Columns": [{"Name": f.name, "Type": _glue_type(f.dataType)} for f in schema.fields],
