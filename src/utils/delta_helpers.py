@@ -54,9 +54,8 @@ def register_delta_table(
     """
     import boto3  # noqa: PLC0415
     from botocore.exceptions import ClientError  # noqa: PLC0415
-    from pyspark.sql import types as T  # noqa: PLC0415
-
     from delta.tables import DeltaTable  # noqa: PLC0415
+    from pyspark.sql import types as T  # noqa: PLC0415
 
     dt = DeltaTable.forPath(spark, target_path)
     history_row = dt.history(1).select("version", "timestamp").collect()[0]
