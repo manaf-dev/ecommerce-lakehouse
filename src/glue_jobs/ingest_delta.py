@@ -174,7 +174,8 @@ def run_ingest(spark: object, args: dict) -> dict:
 
     catalog_db = args.get("catalog_db")
     if catalog_db:
-        register_delta_table(spark, target_path, catalog_db, dataset)
+        workgroup = args.get("workgroup", "primary")
+        register_delta_table(target_path, catalog_db, dataset, workgroup)
         logger.info(f"Registered {catalog_db}.{dataset}")
 
     if zorder_cols and valid_count >= _OPTIMIZE_ROW_THRESHOLD:
@@ -207,6 +208,7 @@ def main() -> None:
                 "quarantine_path",
                 "run_id",
                 "catalog_db",
+                "workgroup",
             ],
         )
         sc = SparkContext()
@@ -242,6 +244,7 @@ def main() -> None:
         for flag in ["--dataset", "--raw_prefix", "--target_path", "--quarantine_path", "--run_id"]:
             parser.add_argument(flag)
         parser.add_argument("--catalog_db", default="")
+        parser.add_argument("--workgroup", default="primary")
         parser.add_argument("--products_path", default="")
         parser.add_argument("--orders_path", default="")
         ns = parser.parse_args()

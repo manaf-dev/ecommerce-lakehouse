@@ -52,8 +52,9 @@ module "glue" {
   project         = var.project
   glue_role_arn   = module.iam.glue_role_arn
   catalog_db_name = var.catalog_db_name
+  workgroup_name  = module.athena.workgroup_name
 
-  depends_on = [module.s3, module.iam]
+  depends_on = [module.s3, module.iam, module.athena]
 }
 
 module "athena" {

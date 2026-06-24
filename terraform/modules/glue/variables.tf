@@ -18,3 +18,8 @@ variable "catalog_db_name" {
   type        = string
   default     = "lakehouse_dwh"
 }
+
+variable "workgroup_name" {
+  description = "Athena workgroup name for DDL queries during catalog registration"
+  type        = string
+}

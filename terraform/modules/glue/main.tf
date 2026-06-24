@@ -45,6 +45,7 @@ resource "aws_glue_job" "ingest_delta" {
     "--enable-metrics"                   = ""
     "--TempDir"                          = "s3://${var.bucket}/temp/"
     "--catalog_db"                       = var.catalog_db_name
+    "--workgroup"                        = var.workgroup_name
   }
 
   execution_property {

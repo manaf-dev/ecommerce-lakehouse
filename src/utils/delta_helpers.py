@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -40,78 +41,53 @@ def merge_to_delta(
 
 
 def register_delta_table(
-    spark: SparkSession,
     target_path: str,
     catalog_db: str,
     table_name: str,
+    workgroup: str = "primary",
 ) -> None:
-    """Register (or refresh) a Delta table in the Glue Data Catalog via the Glue API.
+    """Register (or refresh) a Delta table in the Glue Data Catalog via Athena DDL.
 
-    Uses the same table format that Athena DDL produces for Delta tables:
-    - table_type = "delta" (lowercase — uppercase breaks Athena's Delta reader)
-    - spark.sql.sources.schema.part.0 = full Spark schema JSON
-    - No 'path' parameter (Athena uses StorageDescriptor.Location)
+    Uses CREATE EXTERNAL TABLE ... TBLPROPERTIES ('table_type'='DELTA'), which is the
+    approach Athena engine v3 natively recognises for Delta Lake tables. The Glue API
+    approach produces tables with subtle metadata differences that break Athena's Delta
+    reader, so we drop any stale entry first and recreate via DDL.
     """
     import boto3  # noqa: PLC0415
     from botocore.exceptions import ClientError  # noqa: PLC0415
-    from delta.tables import DeltaTable  # noqa: PLC0415
-    from pyspark.sql import types as T  # noqa: PLC0415
 
-    dt = DeltaTable.forPath(spark, target_path)
-    history_row = dt.history(1).select("version", "timestamp").collect()[0]
-    delta_version = str(history_row["version"])
-    delta_ts_ms = str(int(history_row["timestamp"].timestamp() * 1000))
-
-    schema = dt.toDF().schema
-
-    def _glue_type(dt_: object) -> str:
-        if isinstance(dt_, T.DecimalType):
-            return f"decimal({dt_.precision},{dt_.scale})"
-        return {
-            T.StringType: "string",
-            T.IntegerType: "int",
-            T.LongType: "bigint",
-            T.DoubleType: "double",
-            T.FloatType: "float",
-            T.BooleanType: "boolean",
-            T.DateType: "date",
-            T.TimestampType: "timestamp",
-        }.get(type(dt_), "string")
-
-    table_input = {
-        "Name": table_name,
-        "TableType": "EXTERNAL_TABLE",
-        "Parameters": {
-            "EXTERNAL": "TRUE",
-            "table_type": "delta",
-            "spark.sql.sources.provider": "delta",
-            "spark.sql.sources.schema.numParts": "1",
-            "spark.sql.sources.schema.part.0": schema.json(),
-            "spark.sql.partitionProvider": "catalog",
-            "delta.lastUpdateVersion": delta_version,
-            "delta.lastCommitTimestamp": delta_ts_ms,
-        },
-        "StorageDescriptor": {
-            "Columns": [{"Name": f.name, "Type": _glue_type(f.dataType)} for f in schema.fields],  # type: ignore[arg-type]
-            "Location": target_path,
-            "InputFormat": "org.apache.hadoop.mapred.SequenceFileInputFormat",
-            "OutputFormat": "org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat",
-            "SerdeInfo": {
-                "SerializationLibrary": "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe",
-            },
-            "Compressed": False,
-            "NumberOfBuckets": -1,
-        },
-    }
-
+    # Remove any stale entry (Glue API or prior DDL) before recreating.
     glue = boto3.client("glue")
     try:
-        glue.create_table(DatabaseName=catalog_db, TableInput=table_input)
+        glue.delete_table(DatabaseName=catalog_db, Name=table_name)
     except ClientError as e:
-        if e.response["Error"]["Code"] == "AlreadyExistsException":
-            glue.update_table(DatabaseName=catalog_db, TableInput=table_input)
-        else:
+        if e.response["Error"]["Code"] != "EntityNotFoundException":
             raise
+
+    bucket = target_path.split("/")[2]
+    s3_output = f"s3://{bucket}/athena-results/glue-ddl-tmp/"
+    athena = boto3.client("athena")
+    resp = athena.start_query_execution(
+        QueryString=(
+            f"CREATE EXTERNAL TABLE `{table_name}` "
+            f"LOCATION '{target_path}' "
+            f"TBLPROPERTIES ('table_type'='DELTA')"
+        ),
+        QueryExecutionContext={"Database": catalog_db},
+        WorkGroup=workgroup,
+        ResultConfiguration={"OutputLocation": s3_output},
+    )
+    qeid = resp["QueryExecutionId"]
+    for _ in range(30):
+        status = athena.get_query_execution(QueryExecutionId=qeid)
+        state = status["QueryExecution"]["Status"]["State"]
+        if state == "SUCCEEDED":
+            return
+        if state in ("FAILED", "CANCELLED"):
+            reason = status["QueryExecution"]["Status"].get("StateChangeReason", "")
+            raise RuntimeError(f"Athena CREATE TABLE failed ({state}): {reason}")
+        time.sleep(2)
+    raise TimeoutError(f"Athena DDL timed out for {table_name}")
 
 
 def optimize_and_zorder(

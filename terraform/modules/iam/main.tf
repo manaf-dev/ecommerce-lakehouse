@@ -45,6 +45,7 @@ data "aws_iam_policy_document" "glue" {
         "${var.scripts_prefix}*",
         "archived/*",
         "temp/*",
+        "athena-results/*",
       ]
     }
   }
@@ -68,6 +69,15 @@ data "aws_iam_policy_document" "glue" {
       "arn:aws:s3:::${var.bucket}/archived*",
       "arn:aws:s3:::${var.bucket}/raw*",
       "arn:aws:s3:::${var.bucket}/temp*",
+      "arn:aws:s3:::${var.bucket}/athena-results*",
+    ]
+  }
+
+  statement {
+    sid     = "GlueAthenaDDL"
+    actions = ["athena:StartQueryExecution", "athena:GetQueryExecution", "athena:StopQueryExecution"]
+    resources = [
+      "arn:aws:athena:${local.region}:${local.account_id}:workgroup/${var.project}-workgroup",
     ]
   }
 
