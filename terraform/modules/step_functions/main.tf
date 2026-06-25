@@ -89,6 +89,7 @@ data "aws_iam_policy_document" "sfn" {
     resources = [
       "arn:aws:s3:::${var.bucket}",
       "arn:aws:s3:::${var.bucket}/athena-results/*",
+      "arn:aws:s3:::${var.bucket}/lakehouse-dwh/*",
     ]
   }
 
